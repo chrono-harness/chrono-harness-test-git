@@ -1,19 +1,81 @@
 //! Finite command-boundary Git data for the explicitly registered test consumers.
 //! This is finite test data, not a Git implementation: unknown commands fail closed.
 #![allow(unexpected_cfgs)]
-#[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
-use vstd::prelude::*;
+use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
 
 verus! {
+fn command_matches(command: &str, candidate: &str) -> (matched: bool)
+    ensures matched == (command@ == candidate@),
+{
+    let actual = command.as_bytes();
+    let expected = candidate.as_bytes();
+    let mut remaining = actual.len();
+    if remaining != expected.len() { return false; }
+    while remaining != 0
+        invariant remaining <= actual.len(), actual.len() == expected.len(),
+                  actual@ == command.spec_bytes(), expected@ == candidate.spec_bytes(),
+                  forall|i: int| remaining <= i < actual.len() ==> actual[i] == expected[i],
+        decreases remaining,
+    {
+        remaining -= 1;
+        if actual[remaining] != expected[remaining] { return false; }
+    }
+    proof {
+        assert(actual@ =~= expected@);
+        vstd::utf8::encode_utf8_decode_utf8(command@);
+        vstd::utf8::encode_utf8_decode_utf8(candidate@);
+    }
+    true
+}
+
 pub fn known_git_command(command: &str) -> (allowed: bool)
     ensures allowed == (command@ == "--version"@ || command@ == "check-ref-format"@ || command@ == "init"@ || command@ == "clone"@ || command@ == "add"@ || command@ == "commit"@ || command@ == "commit-tree"@ || command@ == "rev-parse"@ || command@ == "show"@ || command@ == "ls-tree"@ || command@ == "cat-file"@ || command@ == "ls-files"@ || command@ == "config"@ || command@ == "diff"@ || command@ == "update-index"@ || command@ == "update-ref"@ || command@ == "reset"@ || command@ == "restore"@ || command@ == "checkout"@ || command@ == "switch"@ || command@ == "status"@ || command@ == "symbolic-ref"@ || command@ == "branch"@ || command@ == "show-ref"@ || command@ == "for-each-ref"@ || command@ == "remote"@ || command@ == "ls-remote"@ || command@ == "push"@ || command@ == "fetch"@ || command@ == "merge-base"@ || command@ == "rev-list"@ || command@ == "merge"@ || command@ == "write-tree"@ || command@ == "read-tree"@ || command@ == "mv"@ || command@ == "rm"@ || command@ == "replace"@ || command@ == "reflog"@ || command@ == "worktree"@ || command@ == "tag"@ || command@ == "apply"@),
-{ identifiers::equal_text(command, "--version") || identifiers::equal_text(command, "check-ref-format") || identifiers::equal_text(command, "init") || identifiers::equal_text(command, "clone") || identifiers::equal_text(command, "add") || identifiers::equal_text(command, "commit") || identifiers::equal_text(command, "commit-tree") || identifiers::equal_text(command, "rev-parse") || identifiers::equal_text(command, "show") || identifiers::equal_text(command, "ls-tree") || identifiers::equal_text(command, "cat-file") || identifiers::equal_text(command, "ls-files") || identifiers::equal_text(command, "config") || identifiers::equal_text(command, "diff") || identifiers::equal_text(command, "update-index") || identifiers::equal_text(command, "update-ref") || identifiers::equal_text(command, "reset") || identifiers::equal_text(command, "restore") || identifiers::equal_text(command, "checkout") || identifiers::equal_text(command, "switch") || identifiers::equal_text(command, "status") || identifiers::equal_text(command, "symbolic-ref") || identifiers::equal_text(command, "branch") || identifiers::equal_text(command, "show-ref") || identifiers::equal_text(command, "for-each-ref") || identifiers::equal_text(command, "remote") || identifiers::equal_text(command, "ls-remote") || identifiers::equal_text(command, "push") || identifiers::equal_text(command, "fetch") || identifiers::equal_text(command, "merge-base") || identifiers::equal_text(command, "rev-list") || identifiers::equal_text(command, "merge") || identifiers::equal_text(command, "write-tree") || identifiers::equal_text(command, "read-tree") || identifiers::equal_text(command, "mv") || identifiers::equal_text(command, "rm") || identifiers::equal_text(command, "replace") || identifiers::equal_text(command, "reflog") || identifiers::equal_text(command, "worktree") || identifiers::equal_text(command, "tag") || identifiers::equal_text(command, "apply") }
+{
+    command_matches(command, "--version")
+        || command_matches(command, "check-ref-format")
+        || command_matches(command, "init")
+        || command_matches(command, "clone")
+        || command_matches(command, "add")
+        || command_matches(command, "commit")
+        || command_matches(command, "commit-tree")
+        || command_matches(command, "rev-parse")
+        || command_matches(command, "show")
+        || command_matches(command, "ls-tree")
+        || command_matches(command, "cat-file")
+        || command_matches(command, "ls-files")
+        || command_matches(command, "config")
+        || command_matches(command, "diff")
+        || command_matches(command, "update-index")
+        || command_matches(command, "update-ref")
+        || command_matches(command, "reset")
+        || command_matches(command, "restore")
+        || command_matches(command, "checkout")
+        || command_matches(command, "switch")
+        || command_matches(command, "status")
+        || command_matches(command, "symbolic-ref")
+        || command_matches(command, "branch")
+        || command_matches(command, "show-ref")
+        || command_matches(command, "for-each-ref")
+        || command_matches(command, "remote")
+        || command_matches(command, "ls-remote")
+        || command_matches(command, "push")
+        || command_matches(command, "fetch")
+        || command_matches(command, "merge-base")
+        || command_matches(command, "rev-list")
+        || command_matches(command, "merge")
+        || command_matches(command, "write-tree")
+        || command_matches(command, "read-tree")
+        || command_matches(command, "mv")
+        || command_matches(command, "rm")
+        || command_matches(command, "replace")
+        || command_matches(command, "reflog")
+        || command_matches(command, "worktree")
+        || command_matches(command, "tag")
+        || command_matches(command, "apply")
+}
 }
 
 #[cfg(not(any(verus_keep_ghost, test)))]

@@ -24,18 +24,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "chrono-identifiers"
-version = "0.1.0"
-source = "git+https://github.com/chrono-harness/chrono-harness-identifiers.git?rev=77f5059bac12d38630ab42a3b6f4ba4222fd7464#77f5059bac12d38630ab42a3b6f4ba4222fd7464"
-dependencies = [
- "verus_builtin_macros",
-]
-
-[[package]]
 name = "chrono-test-git"
 version = "0.1.0"
 dependencies = [
- "chrono-identifiers",
  "serde",
  "serde_json",
  "sha1",
