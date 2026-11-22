@@ -2477,3 +2477,6 @@ pub use runtime::{dispatch, run};
 pub fn main() {
     runtime::main();
 }
+
+#[cfg(not(any(test, verus_keep_ghost)))]
+pub mod profile;
