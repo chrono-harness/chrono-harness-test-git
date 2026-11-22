@@ -5,7 +5,7 @@ mod git;
 #[cfg(not(verus_keep_ghost))]
 use chrono_test_git as git;
 #[cfg(not(verus_keep_ghost))]
-use verus_builtin_macros::verus;
+use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::{prelude::*, vpanic as panic};
 

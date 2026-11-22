@@ -1,80 +1,53 @@
 //! Finite command-boundary Git data for the explicitly registered test consumers.
 //! This is finite test data, not a Git implementation: unknown commands fail closed.
 #![allow(unexpected_cfgs)]
-#[cfg(not(verus_keep_ghost))]
-use verus_builtin_macros::verus;
-#[cfg(verus_keep_ghost)]
-use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
-fn command_matches(command: &str, candidate: &str) -> (matched: bool)
-    ensures matched == (command@ == candidate@),
-{
-    let actual = command.as_bytes();
-    let expected = candidate.as_bytes();
-    let mut remaining = actual.len();
-    if remaining != expected.len() { return false; }
-    while remaining != 0
-        invariant remaining <= actual.len(), actual.len() == expected.len(),
-                  actual@ == command.spec_bytes(), expected@ == candidate.spec_bytes(),
-                  forall|i: int| remaining <= i < actual.len() ==> actual[i] == expected[i],
-        decreases remaining,
-    {
-        remaining -= 1;
-        if actual[remaining] != expected[remaining] { return false; }
-    }
-    proof {
-        assert(actual@ =~= expected@);
-        vstd::utf8::encode_utf8_decode_utf8(command@);
-        vstd::utf8::encode_utf8_decode_utf8(candidate@);
-    }
-    true
-}
-
 pub fn known_git_command(command: &str) -> (allowed: bool)
     ensures allowed == (command@ == "--version"@ || command@ == "check-ref-format"@ || command@ == "init"@ || command@ == "clone"@ || command@ == "add"@ || command@ == "commit"@ || command@ == "commit-tree"@ || command@ == "rev-parse"@ || command@ == "show"@ || command@ == "ls-tree"@ || command@ == "cat-file"@ || command@ == "ls-files"@ || command@ == "config"@ || command@ == "diff"@ || command@ == "update-index"@ || command@ == "update-ref"@ || command@ == "reset"@ || command@ == "restore"@ || command@ == "checkout"@ || command@ == "switch"@ || command@ == "status"@ || command@ == "symbolic-ref"@ || command@ == "branch"@ || command@ == "show-ref"@ || command@ == "for-each-ref"@ || command@ == "remote"@ || command@ == "ls-remote"@ || command@ == "push"@ || command@ == "fetch"@ || command@ == "merge-base"@ || command@ == "rev-list"@ || command@ == "merge"@ || command@ == "write-tree"@ || command@ == "read-tree"@ || command@ == "mv"@ || command@ == "rm"@ || command@ == "replace"@ || command@ == "reflog"@ || command@ == "worktree"@ || command@ == "tag"@ || command@ == "apply"@),
 {
-    command_matches(command, "--version")
-        || command_matches(command, "check-ref-format")
-        || command_matches(command, "init")
-        || command_matches(command, "clone")
-        || command_matches(command, "add")
-        || command_matches(command, "commit")
-        || command_matches(command, "commit-tree")
-        || command_matches(command, "rev-parse")
-        || command_matches(command, "show")
-        || command_matches(command, "ls-tree")
-        || command_matches(command, "cat-file")
-        || command_matches(command, "ls-files")
-        || command_matches(command, "config")
-        || command_matches(command, "diff")
-        || command_matches(command, "update-index")
-        || command_matches(command, "update-ref")
-        || command_matches(command, "reset")
-        || command_matches(command, "restore")
-        || command_matches(command, "checkout")
-        || command_matches(command, "switch")
-        || command_matches(command, "status")
-        || command_matches(command, "symbolic-ref")
-        || command_matches(command, "branch")
-        || command_matches(command, "show-ref")
-        || command_matches(command, "for-each-ref")
-        || command_matches(command, "remote")
-        || command_matches(command, "ls-remote")
-        || command_matches(command, "push")
-        || command_matches(command, "fetch")
-        || command_matches(command, "merge-base")
-        || command_matches(command, "rev-list")
-        || command_matches(command, "merge")
-        || command_matches(command, "write-tree")
-        || command_matches(command, "read-tree")
-        || command_matches(command, "mv")
-        || command_matches(command, "rm")
-        || command_matches(command, "replace")
-        || command_matches(command, "reflog")
-        || command_matches(command, "worktree")
-        || command_matches(command, "tag")
-        || command_matches(command, "apply")
+    <&str>::exec_eq(command, "--version")
+        || <&str>::exec_eq(command, "check-ref-format")
+        || <&str>::exec_eq(command, "init")
+        || <&str>::exec_eq(command, "clone")
+        || <&str>::exec_eq(command, "add")
+        || <&str>::exec_eq(command, "commit")
+        || <&str>::exec_eq(command, "commit-tree")
+        || <&str>::exec_eq(command, "rev-parse")
+        || <&str>::exec_eq(command, "show")
+        || <&str>::exec_eq(command, "ls-tree")
+        || <&str>::exec_eq(command, "cat-file")
+        || <&str>::exec_eq(command, "ls-files")
+        || <&str>::exec_eq(command, "config")
+        || <&str>::exec_eq(command, "diff")
+        || <&str>::exec_eq(command, "update-index")
+        || <&str>::exec_eq(command, "update-ref")
+        || <&str>::exec_eq(command, "reset")
+        || <&str>::exec_eq(command, "restore")
+        || <&str>::exec_eq(command, "checkout")
+        || <&str>::exec_eq(command, "switch")
+        || <&str>::exec_eq(command, "status")
+        || <&str>::exec_eq(command, "symbolic-ref")
+        || <&str>::exec_eq(command, "branch")
+        || <&str>::exec_eq(command, "show-ref")
+        || <&str>::exec_eq(command, "for-each-ref")
+        || <&str>::exec_eq(command, "remote")
+        || <&str>::exec_eq(command, "ls-remote")
+        || <&str>::exec_eq(command, "push")
+        || <&str>::exec_eq(command, "fetch")
+        || <&str>::exec_eq(command, "merge-base")
+        || <&str>::exec_eq(command, "rev-list")
+        || <&str>::exec_eq(command, "merge")
+        || <&str>::exec_eq(command, "write-tree")
+        || <&str>::exec_eq(command, "read-tree")
+        || <&str>::exec_eq(command, "mv")
+        || <&str>::exec_eq(command, "rm")
+        || <&str>::exec_eq(command, "replace")
+        || <&str>::exec_eq(command, "reflog")
+        || <&str>::exec_eq(command, "worktree")
+        || <&str>::exec_eq(command, "tag")
+        || <&str>::exec_eq(command, "apply")
 }
 }
 
