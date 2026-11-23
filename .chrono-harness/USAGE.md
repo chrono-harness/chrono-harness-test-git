@@ -1,5 +1,7 @@
 # chrono-harness-test-git 使用说明
 
+组件的用途、开发仓库和示例见 [Chrono Harness 用户与开发者入口](https://github.com/chrono-harness/chrono-harness-main)。
+
 本仓提供 Rust 测试使用的 Git 命令替身。
 
 开发分支为 `dev`。日常 PR 合入开发分支，正式版从 `main` 发布。
