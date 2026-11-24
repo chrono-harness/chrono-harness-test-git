@@ -49,6 +49,126 @@ pub fn known_git_command(command: &str) -> (allowed: bool)
         || <&str>::exec_eq(command, "tag")
         || <&str>::exec_eq(command, "apply")
 }
+
+pub const SLASH: u8 = 47;
+pub const STAR: u8 = 42;
+pub const DOT: u8 = 46;
+pub const COMMENT: u8 = 35;
+pub const CR: u8 = 13;
+pub const LF: u8 = 10;
+
+pub open spec fn first_non_slash(line: Seq<u8>, i: int) -> int
+    decreases line.len() - i,
+{
+    if 0 <= i < line.len() && line[i] == SLASH { first_non_slash(line, i + 1) } else { i }
+}
+
+pub open spec fn after_last_non_slash(line: Seq<u8>, start: int, end: int) -> int
+    decreases end - start,
+{
+    if 0 <= start < end <= line.len() && line[end - 1] == SLASH {
+        after_last_non_slash(line, start, end - 1)
+    } else { end }
+}
+
+pub open spec fn matches_ignore_line(line: Seq<u8>, path: Seq<u8>) -> bool {
+    let start = first_non_slash(line, 0);
+    let pattern = line.subrange(start, line.len() as int);
+    let end = after_last_non_slash(line, start, line.len() as int);
+    line.len() > 0 && line[0] != COMMENT && (
+        (pattern.len() >= 2 && pattern[0] == STAR && pattern[1] == DOT
+            && pattern.len() - 1 <= path.len()
+            && path.skip(path.len() - (pattern.len() - 1)) == pattern.skip(1))
+        || path == line.subrange(start, end)
+        || (pattern.len() > 0 && pattern.last() == SLASH && pattern.len() <= path.len()
+            && path.take(pattern.len() as int) == pattern))
+}
+
+fn same_bytes(a: &[u8], b: &[u8]) -> (same: bool)
+    ensures same == (a@ == b@),
+{
+    if a.len() != b.len() { return false; }
+    let mut i = 0;
+    while i < a.len()
+        invariant i <= a.len(), a.len() == b.len(), forall|k: int| 0 <= k < i ==> a@[k] == b@[k],
+        decreases a.len() - i,
+    {
+        if a[i] != b[i] { return false; }
+        i += 1;
+    }
+    proof { assert(a@ =~= b@); }
+    true
+}
+
+pub fn ignore_line(line: &[u8], path: &[u8]) -> (matched: bool)
+    ensures matched == matches_ignore_line(line@, path@),
+{
+    use vstd::slice::slice_subrange;
+    if line.is_empty() || line[0] == COMMENT { return false; }
+    let mut start = 0;
+    while start < line.len() && line[start] == SLASH
+        invariant start <= line.len(), first_non_slash(line@, start as int) == first_non_slash(line@, 0),
+        decreases line.len() - start,
+    { start += 1; }
+    let mut end = line.len();
+    while start < end && line[end - 1] == SLASH
+        invariant start <= end <= line.len(),
+            after_last_non_slash(line@, start as int, end as int)
+                == after_last_non_slash(line@, start as int, line.len() as int),
+        decreases end - start,
+    { end -= 1; }
+    let pattern = slice_subrange(line, start, line.len());
+    if pattern.len() >= 2 && pattern[0] == STAR && pattern[1] == DOT {
+        let suffix = slice_subrange(pattern, 1, pattern.len());
+        if suffix.len() <= path.len()
+            && same_bytes(slice_subrange(path, path.len() - suffix.len(), path.len()), suffix) {
+            return true;
+        }
+    }
+    same_bytes(path, slice_subrange(line, start, end))
+        || (pattern.len() > 0 && pattern[pattern.len() - 1] == SLASH && pattern.len() <= path.len()
+            && same_bytes(slice_subrange(path, 0, pattern.len()), pattern))
+}
+
+pub open spec fn newline_at(text: Seq<u8>, i: int) -> int
+    decreases text.len() - i,
+{
+    if 0 <= i < text.len() && text[i] != LF { newline_at(text, i + 1) } else { i }
+}
+
+pub open spec fn ignored_from(text: Seq<u8>, path: Seq<u8>, i: int) -> bool
+    decreases text.len() - i,
+{
+    if !(0 <= i < text.len()) { false } else {
+        let end = newline_at(text, i);
+        let crlf = i < end < text.len() && text[end - 1] == CR;
+        matches_ignore_line(text.subrange(i, if crlf { end - 1 } else { end }), path)
+            || (i <= end < text.len() && ignored_from(text, path, end + 1))
+    }
+}
+
+/// Read LF and CRLF as str::lines does. A final unpaired CR is part of the pattern.
+pub fn ignored_text(text: &[u8], path: &[u8]) -> (matched: bool)
+    ensures matched == ignored_from(text@, path@, 0),
+{
+    use vstd::slice::slice_subrange;
+    let mut start = 0;
+    while start < text.len()
+        invariant start <= text.len(), ignored_from(text@, path@, 0) == ignored_from(text@, path@, start as int),
+        decreases text.len() - start,
+    {
+        let mut end = start;
+        while end < text.len() && text[end] != LF
+            invariant start <= end <= text.len(), newline_at(text@, end as int) == newline_at(text@, start as int),
+            decreases text.len() - end,
+        { end += 1; }
+        let content_end = if start < end && end < text.len() && text[end - 1] == CR { end - 1 } else { end };
+        if ignore_line(slice_subrange(text, start, content_end), path) { return true; }
+        if end == text.len() { return false; }
+        start = end + 1;
+    }
+    false
+}
 }
 
 #[cfg(not(any(verus_keep_ghost, test)))]
@@ -130,17 +250,10 @@ mod runtime {
         Ok(())
     }
     fn ignored(root: &Path, path: &str) -> bool {
-        (fs::read_to_string(root.join(".gitignore")).unwrap_or_default()
+        let rules = fs::read_to_string(root.join(".gitignore")).unwrap_or_default()
             + "\n"
-            + &fs::read_to_string(common(root).join("info/exclude")).unwrap_or_default())
-            .lines()
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .any(|line| {
-                let pattern = line.trim_start_matches('/');
-                (pattern.starts_with("*.") && path.ends_with(&pattern[1..]))
-                    || path == pattern.trim_end_matches('/')
-                    || (pattern.ends_with('/') && path.starts_with(pattern))
-            })
+            + &fs::read_to_string(common(root).join("info/exclude")).unwrap_or_default();
+        super::ignored_text(rules.as_bytes(), path.as_bytes())
     }
     fn entry(root: &Path, path: &str, width: usize) -> io::Result<(Entry, Vec<u8>)> {
         let physical = root.join(path);

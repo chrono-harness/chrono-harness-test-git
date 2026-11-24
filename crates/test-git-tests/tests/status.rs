@@ -2,6 +2,64 @@ mod git_status_io {
     use std::{fs, process::Command};
 
     #[test]
+    fn ignored_patterns_select_visible_paths_during_ordinary_and_forced_add() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let git = |arguments: &[&str]| {
+            let result = Command::new(env!("CHRONO_TEST_GIT_BIN"))
+                .current_dir(root)
+                .args(arguments)
+                .output()
+                .unwrap();
+            assert!(result.status.success(), "{arguments:?}: {result:?}");
+            assert!(result.stderr.is_empty());
+            result.stdout
+        };
+        git(&["init", "-q", "-b", "dev"]);
+        fs::write(
+            root.join(".gitignore"),
+            "\n#visible\r\n//root-only\r\n*.bin\n",
+        )
+        .unwrap();
+        fs::write(root.join(".git/info/exclude"), "generated/\n").unwrap();
+        for directory in ["nested", "generated"] {
+            fs::create_dir(root.join(directory)).unwrap();
+        }
+        for file in [
+            "visible",
+            "root-only",
+            "nested/root-only",
+            "nested/tool.bin",
+            "generated/item",
+        ] {
+            fs::write(root.join(file), file).unwrap();
+        }
+        git(&["add", "."]);
+        git(&["commit", "-qm", "ordinary"]);
+        assert_eq!(git(&["status", "--porcelain", "-z"]), b"");
+        for file in [
+            "visible",
+            "nested/root-only",
+            "root-only",
+            "nested/tool.bin",
+            "generated/item",
+        ] {
+            fs::write(root.join(file), "edited").unwrap();
+        }
+        assert_eq!(
+            git(&["status", "--porcelain", "-z"]),
+            b" M nested/root-only\0 M visible\0"
+        );
+        git(&["add", "-f", "nested/tool.bin"]);
+        git(&["commit", "-qm", "forced"]);
+        fs::write(root.join("nested/tool.bin"), "edited again").unwrap();
+        assert_eq!(
+            git(&["status", "--porcelain", "-z"]),
+            b" M nested/root-only\0 M nested/tool.bin\0 M visible\0"
+        );
+    }
+
+    #[test]
     fn selected_git_mock_status_skips_ignored_subtrees_but_checks_tracked_files() {
         use std::os::unix::fs::PermissionsExt;
 
