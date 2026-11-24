@@ -304,10 +304,7 @@
       "surface": "product",
       "cost": "unmeasured",
       "edges": [],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
+      "symlink": "CLAUDE.md"
     },
     {
       "path": "CLAUDE.md",
