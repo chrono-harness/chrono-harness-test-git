@@ -7,3 +7,5 @@ Rust 测试使用的 Git 命令替身。共享的模型覆盖工作树、索引�
 从本仓发行下载对应平台的 `chrono-test-git`、`chrono-test-git-profile` 和 `SHA256SUMS`。按资产文件名核对 SHA-256 后，将需要的可执行文件安装在工作树外。升级和回退使用对应标签的发行文件。
 
 `chrono-test-git` 在测试进程私有的 PATH 中充当 Git，接受 Git 参数、标准输入并维护测试仓库。用 `--version` 可读到 `git version fixture`。`chrono-test-git-profile` 供需要追踪参数和注入错误的测试使用。用 `CHRONO_TEST_GIT_PROFILE` 选择 `registration`、`event` 或 `scoped`，相应的环境变量与退出行为见 [profile 实现](crates/test-git/src/profile.rs)。
+
+终止错误的证明根覆盖 read、version、probe 和 fetch 的适用条件，以及退出码、原始输出、错误前缀和是否读完 stdin。原生适配器执行实际 IO；runner 的登记 Git 用例直接读取子进程结果。超时、输出上限和文件替换另由相应行为用例验证。

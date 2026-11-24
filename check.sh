@@ -27,6 +27,7 @@ cargo test --locked --manifest-path crates/test-git-tests/Cargo.toml --color nev
 for consumer in \
   known_git_command_independent_boundaries \
   dispatch_rejects_unknown_commands_before_opening_a_repository \
+  profile_terminal_failures_preserve_process_responses_and_delegation \
   registration_tree_failure_preserves_bytes_exit_and_arguments \
   git_status_io::selected_git_mock_status_skips_ignored_subtrees_but_checks_tracked_files \
   git_status_io::selected_git_mock_status_keeps_visible_and_explicit_ignored_io_errors; do
@@ -50,5 +51,5 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/lib.rs src/profile.rs ||
+chrono-host-bootstrap check-compiler-sources native "$stem" src/lib.rs src/profile.rs src/profile_failure.rs ||
   coverage_failure "native library differs from required sources"

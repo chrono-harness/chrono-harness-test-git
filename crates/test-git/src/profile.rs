@@ -71,25 +71,25 @@ pub fn main() -> io::Result<()> {
         .is_some_and(|argument| argument == "--version");
     let tree = arguments.iter().any(|argument| argument == "ls-tree");
     let registration = env::var("CHRONO_TEST_GIT_PROFILE").as_deref() == Ok("registration");
+    if let Some(result) =
+        crate::profile_failure::terminal_failure(&mode, registration, tree, version, probe, fetch)
+    {
+        if result.drain_stdin {
+            io::copy(&mut io::stdin(), &mut io::sink())?;
+        }
+        if !result.stdout.is_empty() {
+            io::stdout().write_all(result.stdout.as_bytes())?;
+            io::stdout().flush()?;
+        }
+        let mut stderr = io::stderr().lock();
+        if let Some(byte) = result.stderr_prefix {
+            stderr.write_all(&[byte])?;
+        }
+        stderr.write_all(result.stderr.as_bytes())?;
+        process::exit(result.code);
+    }
     match mode.as_str() {
         "pass" => {}
-        "read-failure" if tree => {
-            io::stdout().write_all(b"a\0b")?;
-            io::stdout().flush()?;
-            failure(
-                if registration {
-                    b"selected-facts-failure"
-                } else {
-                    b"chosen-failure"
-                },
-                17,
-            );
-        }
-        "version-exit" if version => {
-            io::stdout().write_all(b"a\0b")?;
-            io::stdout().flush()?;
-            failure(b"version-failed", 19);
-        }
         "version-timeout" if version => {
             if registration {
                 io::stdout().write_all(b"before-timeout")?;
@@ -148,10 +148,6 @@ pub fn main() -> io::Result<()> {
             }
             return Ok(());
         }
-        "probe-failure" if probe => {
-            io::copy(&mut io::stdin(), &mut io::sink())?;
-            failure(b"\xfforiginal-probe\n", 73);
-        }
         "malformed-probe" if probe => {
             io::copy(&mut io::stdin(), &mut io::sink())?;
             io::stdout().write_all(b"not-the-request missing\n")?;
@@ -171,9 +167,6 @@ pub fn main() -> io::Result<()> {
             })?;
             return Ok(());
         }
-        "full-probe-failure" if probe => failure(b"\xffbroken", 29),
-        "full-fetch-failure" if fetch => failure(b"\xfefetch-failure", 31),
-        "scope-probe-failure" if probe => failure(b"\xffscope-probe-failure", 29),
         "probe-failure"
         | "malformed-probe"
         | "wrong-type-probe"

@@ -36,6 +36,28 @@
             "version": "0.2026.04.24.f8e1704",
             "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
           }
+        },
+        "verify_profile_failures": {
+          "operation": "verify.test-git-profile-failures",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.test-git-profile-failures.rlib,dep-info=.chrono-harness/state/verify.test-git-profile-failures.rlib.d",
+            "crates/test-git/src/profile_failure.rs",
+            "-o",
+            ".chrono-harness/state/verify.test-git-profile-failures.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
         }
       },
       "language": "rust"
@@ -77,6 +99,28 @@
             "./check.sh",
             "--native"
           ]
+        },
+        "verify_profile_failures": {
+          "operation": "verify.test-git-profile-failures-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.test-git-profile-failures-tests.rlib,dep-info=.chrono-harness/state/verify.test-git-profile-failures-tests.rlib.d",
+            "crates/test-git-tests/tests/profile_failures.rs",
+            "-o",
+            ".chrono-harness/state/verify.test-git-profile-failures-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
         }
       },
       "language": "rust"
