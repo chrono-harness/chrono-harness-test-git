@@ -8,7 +8,7 @@ mod git_status_io {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
         let call = |args: &[&str]| {
-            Command::new(env!("CARGO_BIN_EXE_chrono-test-git"))
+            Command::new(env!("CHRONO_TEST_GIT_BIN"))
                 .current_dir(root)
                 .args(args)
                 .output()
@@ -82,7 +82,7 @@ mod git_status_io {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
         let call = |args: &[&str]| {
-            Command::new(env!("CARGO_BIN_EXE_chrono-test-git"))
+            Command::new(env!("CHRONO_TEST_GIT_BIN"))
                 .current_dir(root)
                 .args(args)
                 .output()
