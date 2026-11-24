@@ -89,6 +89,33 @@ fn known_git_command_independent_boundaries() {
     expect(!git::known_git_command("unknown command"));
     expect(!git::known_git_command("BUILD"));
 }
+// "#x\n\n//a/\r\n*.c\nb\r" includes a CRLF and a final literal CR.
+const RULES: [u8; 16] = [35, 120, 10, 10, 47, 47, 97, 47, 13, 10, 42, 46, 99, 10, 98, 13];
+const INSIDE: [u8; 3] = [97, 47, 120];
+const EXACT: [u8; 1] = [97];
+const EXTENSION: [u8; 3] = [113, 46, 99];
+const COMMENT: [u8; 1] = [120];
+const FINAL_CR: [u8; 2] = [98, 13];
+const BARE: [u8; 1] = [98];
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn finite_ignore_patterns_and_line_boundaries() {
+    proof {
+        assert(git::ignored_from(RULES@, INSIDE@, 0)) by (compute);
+        assert(git::ignored_from(RULES@, EXACT@, 0)) by (compute);
+        assert(git::ignored_from(RULES@, EXTENSION@, 0)) by (compute);
+        assert(!git::ignored_from(RULES@, COMMENT@, 0)) by (compute);
+        assert(git::ignored_from(RULES@, FINAL_CR@, 0)) by (compute);
+        assert(!git::ignored_from(RULES@, BARE@, 0)) by (compute);
+    }
+    expect(git::ignored_text(&RULES, &INSIDE));
+    expect(git::ignored_text(&RULES, &EXACT));
+    expect(git::ignored_text(&RULES, &EXTENSION));
+    expect(!git::ignored_text(&RULES, &COMMENT));
+    expect(git::ignored_text(&RULES, &FINAL_CR));
+    expect(!git::ignored_text(&RULES, &BARE));
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
