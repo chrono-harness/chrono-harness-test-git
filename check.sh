@@ -9,7 +9,10 @@ export CARGO_TARGET_DIR="$scratch/cargo"
 cargo fmt --check --manifest-path crates/test-git/Cargo.toml
 product=crates/test-git/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
-cargo test --locked --manifest-path crates/test-git/Cargo.toml
+cargo fmt --check --manifest-path crates/test-git-tests/Cargo.toml
+export CHRONO_TEST_GIT_BIN="$CARGO_TARGET_DIR/debug/chrono-test-git"
+export CHRONO_TEST_GIT_PROFILE_BIN="$CARGO_TARGET_DIR/debug/chrono-test-git-profile"
+cargo test --locked --manifest-path crates/test-git-tests/Cargo.toml
 
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
@@ -44,10 +47,10 @@ chrono-host-bootstrap check-compiler-sources native "$stem" src/lib.rs src/profi
   coverage_failure "native library differs from required sources"
 
 commands=crates/test-git/src/lib.rs
-expectations=crates/test-git/tests/commands.rs
+expectations=crates/test-git-tests/tests/commands.rs
 
 prove commands "$commands"
 prove commands-tests "$expectations"
 
 admit_proof commands "$commands"
-admit_proof commands-tests "$expectations" crates/test-git/tests/../src/lib.rs
+admit_proof commands-tests "$expectations" crates/test-git-tests/tests/../../test-git/src/lib.rs

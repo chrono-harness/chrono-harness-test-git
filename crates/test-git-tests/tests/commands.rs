@@ -1,6 +1,6 @@
 #![allow(unexpected_cfgs)]
 #[cfg(verus_keep_ghost)]
-#[path = "../src/lib.rs"]
+#[path = "../../test-git/src/lib.rs"]
 mod git;
 #[cfg(not(verus_keep_ghost))]
 use chrono_test_git as git;

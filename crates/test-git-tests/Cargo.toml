@@ -1,0 +1,10 @@
+[package]
+name = "chrono-test-git-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+chrono-test-git = { path = "../test-git" }
+tempfile = "3"
+vstd = "=0.0.0-2026-04-20-1748"
