@@ -2515,3 +2515,6 @@ pub fn main() {
 
 #[cfg(not(any(test, verus_keep_ghost)))]
 pub mod profile;
+
+#[cfg(not(any(test, verus_keep_ghost)))]
+pub mod profile_failure;

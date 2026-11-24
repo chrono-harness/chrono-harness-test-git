@@ -406,6 +406,27 @@
       ]
     },
     {
+      "path": "crates/test-git-tests/tests/profile_failures.rs",
+      "owner": "test-git-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git-tests/tests/profile_failures.rs",
+            "operation": "verify.test-git-profile-failures-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/test-git-tests/tests/status.rs",
       "owner": "test-git-tests",
       "surface": "test",
@@ -511,6 +532,31 @@
       ]
     },
     {
+      "path": "crates/test-git/src/profile_failure.rs",
+      "owner": "test-git",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git/src/profile_failure.rs",
+            "operation": "verify.test-git-profile-failures"
+          },
+          {
+            "path": "crates/test-git-tests/tests/profile_failures.rs",
+            "operation": "verify.test-git-profile-failures-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "docs/licenses/methodology-attribution.md",
       "owner": "host",
       "surface": "product",
@@ -570,6 +616,8 @@
       "operations": [
         "verify.test-git-commands",
         "verify.test-git-commands-tests",
+        "verify.test-git-profile-failures",
+        "verify.test-git-profile-failures-tests",
         "test-git.owner-check"
       ],
       "timeout_seconds": 600,
