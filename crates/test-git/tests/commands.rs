@@ -90,3 +90,15 @@ fn known_git_command_independent_boundaries() {
     expect(!git::known_git_command("BUILD"));
 }
 }
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn dispatch_rejects_unknown_commands_before_opening_a_repository() {
+    let directory = tempfile::tempdir().unwrap();
+    let run = |command: &str| git::run(directory.path().to_path_buf(), &[command.to_owned()], &[]);
+    assert_eq!(run("--version").unwrap(), b"git version fixture\n");
+    assert_eq!(
+        run("BUILD").unwrap_err(),
+        "unhandled Git fixture command: [\"BUILD\"]"
+    );
+}
