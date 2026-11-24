@@ -16,20 +16,18 @@ coverage_failure() {
   exit 1
 }
 
+verifier=$(command -v "${VERUS:-verus}") || coverage_failure "verifier not found"
+
 prove() {
-  local label=$1 root=$2
-  local output="$scratch/$label.rlib" report="$scratch/$label.json"
-  "${VERUS:-verus}" --crate-type=lib --no-cheating --no-external-by-default --num-threads 2 \
-    --output-json --compile "--emit=link=$output,dep-info=$output.d" "$root" -o "$output" \
-    -Zchecksum-hash-algorithm=sha256 > "$report" || { cat "$report" >&2; coverage_failure "$label: verifier failed"; }
+  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
+    coverage_failure "$1: verifier execution failed"
 }
 
 admit_proof() {
   local label=$1
   shift
-  chrono-host-bootstrap check-compiler-proof \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be \
-    "$scratch/$label.json" "$scratch/$label.rlib" "$@" ||
+  chrono-host-bootstrap collect-compiler-proof "$scratch" "$label" "$verifier" \
+    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
     coverage_failure "$label: required proof result was not admitted"
 }
 
