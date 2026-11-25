@@ -29,6 +29,7 @@ for consumer in \
   known_git_command_independent_boundaries \
   dispatch_rejects_unknown_commands_before_opening_a_repository \
   profile_terminal_failures_preserve_process_responses_and_delegation \
+  profile_selects_registered_environment_or_first_error \
   environment_errors_precede_trace_creation \
   registered_environments_preserve_raw_inputs_and_first_error \
   registration_tree_failure_preserves_bytes_exit_and_arguments \

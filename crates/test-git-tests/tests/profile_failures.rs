@@ -27,6 +27,54 @@ fn environment_errors_precede_trace_creation() {
     expect(policy::environment_exit("declared", 0).is_none());
 }
 
+fn check_binding(choice: Result<policy::Bindings, i32>, bound: &str, ambient: &str,
+                 trace: &str, mode: &str, registration: bool)
+    requires match choice {
+        Ok(b) => b.bound@ == bound@ && b.ambient@ == ambient@ && b.trace@ == trace@
+            && b.mode@ == mode@ && b.registration == registration,
+        Err(_) => false,
+    },
+{
+    match choice {
+        Ok(b) => {
+            expect(<&str>::exec_eq(b.bound, bound));
+            expect(<&str>::exec_eq(b.ambient, ambient));
+            expect(<&str>::exec_eq(b.trace, trace));
+            expect(<&str>::exec_eq(b.mode, mode));
+            expect(b.registration == registration);
+        },
+        Err(_) => expect(false),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn profile_selects_registered_environment_or_first_error() {
+    proof {
+        reveal_strlit("event");
+        reveal_strlit("scoped");
+        reveal_strlit("registration");
+        reveal_strlit("");
+        reveal_strlit("other");
+        assert("other"@[0] != "event"@[0]);
+        assert("other"@ != "event"@);
+        assert("event"@.len() == 5 && "scoped"@.len() == 6 && "registration"@.len() == 12);
+        assert(""@.len() == 0 && "other"@.len() == 5);
+        assert("event"@ != "scoped"@ && "event"@ != "registration"@ && "scoped"@ != "registration"@);
+        assert(""@ != "event"@ && ""@ != "scoped"@ && ""@ != "registration"@);
+        assert("other"@ != "scoped"@ && "other"@ != "registration"@);
+    }
+    check_binding(policy::profile_bindings(false, "event"),
+        "BOUND_EVENT_VALUE", "CHRONO_EVENT_AMBIENT", "EVENT_TRACE", "EVENT_GIT_MODE", false);
+    check_binding(policy::profile_bindings(false, "scoped"),
+        "BOUND_SCOPED_VALUE", "SCOPED_AMBIENT", "SCOPED_TRACE", "SCOPED_GIT_MODE", false);
+    check_binding(policy::profile_bindings(false, "registration"),
+        "BOUND_FACTS_VALUE", "CHRONO_AMBIENT_PROBE", "CHRONO_FACTS_TRACE", "FACTS_GIT_MODE", true);
+    expect(policy::profile_bindings(true, "event").err().unwrap_or(0) == 83);
+    expect(policy::profile_bindings(true, "").err().unwrap_or(0) == 83);
+    expect(policy::profile_bindings(false, "").err().unwrap_or(0) == 84);
+    expect(policy::profile_bindings(false, "other").err().unwrap_or(0) == 84);
+}
+
 fn exact(result: Option<policy::Failure>, code: i32, stdout: &str, prefix: Option<u8>, stderr: &str, drain: bool)
     requires match result { Some(r) => policy::describes(r, code as int, stdout@, prefix, stderr@, drain), None => false },
 {

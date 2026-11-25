@@ -1,6 +1,47 @@
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
+pub struct Bindings {
+    pub bound: &'static str,
+    pub ambient: &'static str,
+    pub trace: &'static str,
+    pub mode: &'static str,
+    pub registration: bool,
+}
+
+pub open spec fn uses_bindings(b: Bindings, bound: Seq<char>, ambient: Seq<char>,
+                               trace: Seq<char>, mode: Seq<char>, registration: bool) -> bool {
+    b.bound@ == bound && b.ambient@ == ambient && b.trace@ == trace
+        && b.mode@ == mode && b.registration == registration
+}
+
+pub fn profile_bindings(as_git: bool, name: &str) -> (choice: Result<Bindings, i32>)
+    ensures
+        choice.is_ok() == (!as_git && (name@ == "event"@ || name@ == "scoped"@ || name@ == "registration"@)),
+        match choice {
+            Err(code) => code == if as_git { 83i32 } else { 84i32 },
+            Ok(b) => if name@ == "event"@ {
+                uses_bindings(b, "BOUND_EVENT_VALUE"@, "CHRONO_EVENT_AMBIENT"@, "EVENT_TRACE"@, "EVENT_GIT_MODE"@, false)
+            } else if name@ == "scoped"@ {
+                uses_bindings(b, "BOUND_SCOPED_VALUE"@, "SCOPED_AMBIENT"@, "SCOPED_TRACE"@, "SCOPED_GIT_MODE"@, false)
+            } else if name@ == "registration"@ {
+                uses_bindings(b, "BOUND_FACTS_VALUE"@, "CHRONO_AMBIENT_PROBE"@, "CHRONO_FACTS_TRACE"@, "FACTS_GIT_MODE"@, true)
+            } else { false },
+        },
+{
+    if as_git {
+        Err(83)
+    } else if <&str>::exec_eq(name, "event") {
+        Ok(Bindings { bound: "BOUND_EVENT_VALUE", ambient: "CHRONO_EVENT_AMBIENT", trace: "EVENT_TRACE", mode: "EVENT_GIT_MODE", registration: false })
+    } else if <&str>::exec_eq(name, "scoped") {
+        Ok(Bindings { bound: "BOUND_SCOPED_VALUE", ambient: "SCOPED_AMBIENT", trace: "SCOPED_TRACE", mode: "SCOPED_GIT_MODE", registration: false })
+    } else if <&str>::exec_eq(name, "registration") {
+        Ok(Bindings { bound: "BOUND_FACTS_VALUE", ambient: "CHRONO_AMBIENT_PROBE", trace: "CHRONO_FACTS_TRACE", mode: "FACTS_GIT_MODE", registration: true })
+    } else {
+        Err(84)
+    }
+}
+
 /// Admission precedes trace creation in each registered Git profile.
 pub fn environment_exit(bound: &str, ambient_bytes: usize) -> (exit: Option<i32>)
     ensures exit == if bound@ != "declared"@ { Some(81i32) }
@@ -38,33 +79,15 @@ fn failure(bytes: &[u8], code: i32) -> ! {
 pub fn main() -> io::Result<()> {
     let mut arguments = env::args_os();
     let program = arguments.next().unwrap();
-    if Path::new(&program).file_name() == Some(OsStr::new("git")) {
-        failure(b"ambient-git\n", 83);
-    }
-    let (bound, ambient, trace_name, mode_name) =
-        match env::var("CHRONO_TEST_GIT_PROFILE").as_deref() {
-            Ok("event") => (
-                "BOUND_EVENT_VALUE",
-                "CHRONO_EVENT_AMBIENT",
-                "EVENT_TRACE",
-                "EVENT_GIT_MODE",
-            ),
-            Ok("scoped") => (
-                "BOUND_SCOPED_VALUE",
-                "SCOPED_AMBIENT",
-                "SCOPED_TRACE",
-                "SCOPED_GIT_MODE",
-            ),
-            Ok("registration") => (
-                "BOUND_FACTS_VALUE",
-                "CHRONO_AMBIENT_PROBE",
-                "CHRONO_FACTS_TRACE",
-                "FACTS_GIT_MODE",
-            ),
-            _ => failure(b"unknown registered Git fixture profile\n", 84),
-        };
-    let bound_value = env::var(bound).unwrap_or_default();
-    let ambient_bytes = env::var_os(ambient).map_or(0, |value| value.as_bytes().len());
+    let as_git = Path::new(&program).file_name() == Some(OsStr::new("git"));
+    let requested = env::var("CHRONO_TEST_GIT_PROFILE").unwrap_or_default();
+    let bindings = match profile_bindings(as_git, &requested) {
+        Ok(bindings) => bindings,
+        Err(83) => failure(b"ambient-git\n", 83),
+        Err(code) => failure(b"unknown registered Git fixture profile\n", code),
+    };
+    let bound_value = env::var(bindings.bound).unwrap_or_default();
+    let ambient_bytes = env::var_os(bindings.ambient).map_or(0, |value| value.as_bytes().len());
     if let Some(code) = environment_exit(&bound_value, ambient_bytes) {
         process::exit(code);
     }
@@ -72,7 +95,7 @@ pub fn main() -> io::Result<()> {
     let mut trace = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(env::var_os(trace_name).expect("registered trace path"))?;
+        .open(env::var_os(bindings.trace).expect("registered trace path"))?;
     for (index, argument) in arguments.iter().enumerate() {
         if index != 0 {
             trace.write_all(b" ")?;
@@ -82,7 +105,7 @@ pub fn main() -> io::Result<()> {
     trace.write_all(b"\n")?;
     drop(trace);
 
-    let mode = env::var(mode_name).expect("registered Git fixture mode");
+    let mode = env::var(bindings.mode).expect("registered Git fixture mode");
     let probe = arguments
         .iter()
         .any(|argument| argument.as_bytes().starts_with(b"--batch-check"));
@@ -91,7 +114,7 @@ pub fn main() -> io::Result<()> {
         .first()
         .is_some_and(|argument| argument == "--version");
     let tree = arguments.iter().any(|argument| argument == "ls-tree");
-    let registration = env::var("CHRONO_TEST_GIT_PROFILE").as_deref() == Ok("registration");
+    let registration = bindings.registration;
     if let Some(result) =
         crate::profile_failure::terminal_failure(&mode, registration, tree, version, probe, fetch)
     {
