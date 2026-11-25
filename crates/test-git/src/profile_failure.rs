@@ -1,22 +1,15 @@
 //! Terminal Git profile responses consumed by runner process diagnostics.
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
-verus! {
+#[cfg(verus_keep_ghost)]
+#[path = "profile.rs"]
+mod profile;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::profile::environment_exit;
+#[cfg(verus_keep_ghost)]
+pub use profile::environment_exit;
 
-/// Admission precedes trace creation in each registered Git profile.
-pub fn environment_exit(bound: &str, ambient_bytes: usize) -> (exit: Option<i32>)
-    ensures exit == if bound@ != "declared"@ { Some(81i32) }
-                    else if ambient_bytes != 0 { Some(82i32) }
-                    else { None },
-{
-    if !<&str>::exec_eq(bound, "declared") {
-        Some(81)
-    } else if ambient_bytes > 0 {
-        Some(82)
-    } else {
-        None
-    }
-}
+verus! {
 
 pub struct Failure {
     pub code: i32,

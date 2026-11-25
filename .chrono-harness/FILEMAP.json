@@ -435,16 +435,7 @@
           "kind": "test-execution",
           "to": "test:test-git-tests"
         }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/test-git-tests/tests/profile_failures.rs",
-            "operation": "verify.test-git-profile-failures-tests"
-          }
-        ]
-      }
+      ]
     },
     {
       "path": "crates/test-git-tests/tests/profile_failures.rs",
