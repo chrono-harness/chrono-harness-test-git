@@ -39,11 +39,11 @@ macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-runner/r
 
 
 [tools."http:chrono-host-bootstrap"]
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.16"
 bin = "chrono-host-bootstrap"
 [tools."http:chrono-host-bootstrap".platforms]
-linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-host-bootstrap/releases/download/v0.1.0-alpha.11/chrono-host-bootstrap-linux-x86_64", checksum = "sha256:7e14d5dffb59bdbc37a9b085d1465b954cdd60b73f5c99bc54f8dc50b329fecf" }
-macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-host-bootstrap/releases/download/v0.1.0-alpha.11/chrono-host-bootstrap-macos-aarch64", checksum = "sha256:f9334585a1d61fdd9ab33c4d0cb154bc27ea82e3e2e58da445c03d2c23147098" }
+linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-host-bootstrap/releases/download/v0.1.0-alpha.16/chrono-host-bootstrap-linux-x86_64", checksum = "sha256:5461c979261f2bd90f079b1a1158d1396489505871b40ca7c93aa5f243211f96" }
+macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-host-bootstrap/releases/download/v0.1.0-alpha.16/chrono-host-bootstrap-macos-aarch64", checksum = "sha256:73fcc764863bd12aae792404b8c963866fde240d5abd5ab17847d3aaf95ff313" }
 
 
 [tools."http:chrono-host-release"]
@@ -180,8 +180,16 @@ macos-arm64 = { url = "https://github.com/verus-lang/verus/releases/download/rel
 
 
 [tasks.harness-maintain-checks]
-description = "Maintain registered local check originals"
-run = "chrono-harness retention --host-root . --request .chrono-harness/maintain-checks.json"
+
+description = "Maintain native check directories and registered reports"
+run = """
+native_status=0
+chrono-host-bootstrap native-scratch maintain 86400 >&2 || native_status=$?
+chrono-harness retention --host-root . --request .chrono-harness/maintain-checks.json || exit $?
+exit "$native_status"
+"""
+
+
 
 [tasks.harness-setup]
 description = "Install this repository's selected tools"
