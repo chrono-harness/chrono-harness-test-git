@@ -1,3 +1,23 @@
+use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
+
+verus! {
+/// Admission precedes trace creation in each registered Git profile.
+pub fn environment_exit(bound: &str, ambient_bytes: usize) -> (exit: Option<i32>)
+    ensures exit == if bound@ != "declared"@ { Some(81i32) }
+                    else if ambient_bytes != 0 { Some(82i32) }
+                    else { None },
+{
+    if !<&str>::exec_eq(bound, "declared") {
+        Some(81)
+    } else if ambient_bytes > 0 {
+        Some(82)
+    } else {
+        None
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::{
     env,
     ffi::OsStr,
@@ -8,11 +28,13 @@ use std::{
     process::{self},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn failure(bytes: &[u8], code: i32) -> ! {
     io::stderr().write_all(bytes).unwrap();
     process::exit(code);
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn main() -> io::Result<()> {
     let mut arguments = env::args_os();
     let program = arguments.next().unwrap();
@@ -41,11 +63,10 @@ pub fn main() -> io::Result<()> {
             ),
             _ => failure(b"unknown registered Git fixture profile\n", 84),
         };
-    if env::var_os(bound).as_deref() != Some(OsStr::new("declared")) {
-        process::exit(81);
-    }
-    if env::var_os(ambient).is_some_and(|value| !value.is_empty()) {
-        process::exit(82);
+    let bound_value = env::var(bound).unwrap_or_default();
+    let ambient_bytes = env::var_os(ambient).map_or(0, |value| value.as_bytes().len());
+    if let Some(code) = environment_exit(&bound_value, ambient_bytes) {
+        process::exit(code);
     }
     let arguments: Vec<_> = arguments.collect();
     let mut trace = OpenOptions::new()

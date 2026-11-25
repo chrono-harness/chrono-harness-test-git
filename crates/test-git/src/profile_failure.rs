@@ -1,6 +1,14 @@
 //! Terminal Git profile responses consumed by runner process diagnostics.
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
+#[cfg(verus_keep_ghost)]
+#[path = "profile.rs"]
+mod profile;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::profile::environment_exit;
+#[cfg(verus_keep_ghost)]
+pub use profile::environment_exit;
+
 verus! {
 
 pub struct Failure {
