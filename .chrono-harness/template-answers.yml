@@ -1,4 +1,4 @@
-_commit: v0.1.31
+_commit: v0.1.34
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 expire_local_check_slots:
@@ -6,6 +6,7 @@ expire_local_check_slots:
 features:
 - cache
 - ci
+- diagnostics
 - distribution
 - harness
 - host-bootstrap
@@ -35,3 +36,5 @@ release_plan: {}
 repository: chrono-harness/chrono-harness-test-git
 required_check: check
 strict_host_adapters: {}
+tool_install_channels: pinned
+tool_versions: {}
