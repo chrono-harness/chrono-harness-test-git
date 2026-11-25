@@ -179,6 +179,10 @@ macos-arm64 = { url = "https://github.com/verus-lang/verus/releases/download/rel
 
 
 
+[tasks.harness-maintain-checks]
+description = "Maintain registered local check originals"
+run = "chrono-harness retention --host-root . --request .chrono-harness/maintain-checks.json"
+
 [tasks.harness-setup]
 description = "Install this repository's selected tools"
 

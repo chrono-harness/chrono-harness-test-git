@@ -1,0 +1,6 @@
+{
+  "operation": "maintain",
+  "expire_local_check_slots": [
+    ".chrono-harness/state/collection/check.json"
+  ]
+}

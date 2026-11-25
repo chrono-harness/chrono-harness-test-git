@@ -8,6 +8,7 @@
   },
   "report_path": ".chrono-harness/state/collection/check.json",
   "policy": {
+    "report_publication": "retained-reference/v2",
     "filemap": ".chrono-harness/FILEMAP.json",
     "projects": ".chrono-harness/projects.json",
     "artifacts": [

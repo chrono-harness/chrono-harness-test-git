@@ -1,0 +1,27 @@
+{
+  "schema": "chrono-output-retention/v2",
+  "max_lifetime_seconds": 86400,
+  "producers": {
+    "lifecycle-original": [
+      ".chrono-harness/state/worktrees/",
+      ".chrono-harness/state/automatic-cleanup-v2/"
+    ],
+    "lifecycle-state-original": [
+      ".chrono-harness/state/automatic-cleanup-v2/"
+    ],
+    "check-original": [
+      ".chrono-harness/state/"
+    ]
+  },
+  "keep_seconds": 86400,
+  "diagnostic_keep_seconds": 86400,
+  "max_related_outputs": 512,
+  "max_summaries": 128,
+  "max_nodes_per_round": 256,
+  "max_bytes_per_round": 67108864,
+  "max_millis_per_round": 25,
+  "max_output_bytes": 1073741824,
+  "metadata_keep_seconds": 86400,
+  "max_manifest_nodes": 16384,
+  "max_metadata_bytes_per_round": 67108864
+}

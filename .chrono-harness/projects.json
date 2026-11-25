@@ -26,10 +26,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.test-git-commands.rlib,dep-info=.chrono-harness/state/verify.test-git-commands.rlib.d",
+            "--emit=link={operation_state}/verify.test-git-commands.rlib,dep-info={operation_state}/verify.test-git-commands.rlib.d",
             "crates/test-git/src/lib.rs",
             "-o",
-            ".chrono-harness/state/verify.test-git-commands.rlib",
+            "{operation_state}/verify.test-git-commands.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -48,10 +48,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.test-git-profile-failures.rlib,dep-info=.chrono-harness/state/verify.test-git-profile-failures.rlib.d",
+            "--emit=link={operation_state}/verify.test-git-profile-failures.rlib,dep-info={operation_state}/verify.test-git-profile-failures.rlib.d",
             "crates/test-git/src/profile_failure.rs",
             "-o",
-            ".chrono-harness/state/verify.test-git-profile-failures.rlib",
+            "{operation_state}/verify.test-git-profile-failures.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -81,10 +81,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.test-git-commands-tests.rlib,dep-info=.chrono-harness/state/verify.test-git-commands-tests.rlib.d",
+            "--emit=link={operation_state}/verify.test-git-commands-tests.rlib,dep-info={operation_state}/verify.test-git-commands-tests.rlib.d",
             "crates/test-git-tests/tests/commands.rs",
             "-o",
-            ".chrono-harness/state/verify.test-git-commands-tests.rlib",
+            "{operation_state}/verify.test-git-commands-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -111,10 +111,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.test-git-profile-failures-tests.rlib,dep-info=.chrono-harness/state/verify.test-git-profile-failures-tests.rlib.d",
+            "--emit=link={operation_state}/verify.test-git-profile-failures-tests.rlib,dep-info={operation_state}/verify.test-git-profile-failures-tests.rlib.d",
             "crates/test-git-tests/tests/profile_failures.rs",
             "-o",
-            ".chrono-harness/state/verify.test-git-profile-failures-tests.rlib",
+            "{operation_state}/verify.test-git-profile-failures-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
