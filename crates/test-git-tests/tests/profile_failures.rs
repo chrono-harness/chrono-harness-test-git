@@ -56,6 +56,12 @@ fn profile_selects_registered_environment_or_first_error() {
         reveal_strlit("");
         reveal_strlit("other");
         assert("other"@[0] != "event"@[0]);
+        assert("other"@ != "event"@);
+        assert("event"@.len() == 5 && "scoped"@.len() == 6 && "registration"@.len() == 12);
+        assert(""@.len() == 0 && "other"@.len() == 5);
+        assert("event"@ != "scoped"@ && "event"@ != "registration"@ && "scoped"@ != "registration"@);
+        assert(""@ != "event"@ && ""@ != "scoped"@ && ""@ != "registration"@);
+        assert("other"@ != "scoped"@ && "other"@ != "registration"@);
     }
     check_binding(policy::profile_bindings(false, "event"),
         "BOUND_EVENT_VALUE", "CHRONO_EVENT_AMBIENT", "EVENT_TRACE", "EVENT_GIT_MODE", false);
