@@ -5,9 +5,9 @@ use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 #[path = "profile.rs"]
 mod profile;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::profile::environment_exit;
+pub use crate::profile::{environment_exit, profile_bindings, Bindings};
 #[cfg(verus_keep_ghost)]
-pub use profile::environment_exit;
+pub use profile::{environment_exit, profile_bindings, Bindings};
 
 verus! {
 
