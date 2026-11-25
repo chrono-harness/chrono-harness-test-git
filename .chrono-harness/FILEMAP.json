@@ -97,6 +97,18 @@
       }
     },
     {
+      "path": ".chrono-harness/install-tools.sh",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ]
+    },
+    {
       "path": ".chrono-harness/judges.json",
       "owner": "host",
       "surface": "product",
@@ -224,6 +236,13 @@
         "role": "data",
         "roots": []
       }
+    },
+    {
+      "path": ".config/mise/conf.d/.gitignore",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
     },
     {
       "path": ".config/mise/conf.d/chrono-harness.toml",
