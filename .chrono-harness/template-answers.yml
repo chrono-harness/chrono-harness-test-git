@@ -23,6 +23,7 @@ features:
 - worktree
 - verus
 generate_check: false
+local_check_retention: true
 project_guide: ''
 repository: chrono-harness/chrono-harness-test-git
 required_check: check

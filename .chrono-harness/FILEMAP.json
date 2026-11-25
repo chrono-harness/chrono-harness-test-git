@@ -113,6 +113,22 @@
       }
     },
     {
+      "path": ".chrono-harness/maintain-checks.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".chrono-harness/pr.json",
       "owner": "host",
       "surface": "product",
@@ -125,6 +141,22 @@
     },
     {
       "path": ".chrono-harness/projects.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".chrono-harness/retention.json",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
