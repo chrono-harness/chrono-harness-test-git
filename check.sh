@@ -7,14 +7,15 @@ if [[ $# -eq 0 ]]; then
   export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
   exec .chrono-harness/bin/chrono-harness check
 fi
-if [[ $# -ne 1 || $1 != --native ]]; then
+if [[ $# == 1 && $1 == --native ]]; then
+  exec chrono-host-bootstrap native-scratch run /bin/bash ./check.sh --native-in-directory
+fi
+if [[ $# -ne 1 || $1 != --native-in-directory ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
 
-mkdir -p target
-scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
-trap 'rm -rf -- "$scratch"' EXIT
+scratch=${CHRONO_NATIVE_SCRATCH:?missing native check directory}
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/test-git/Cargo.toml

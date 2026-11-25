@@ -1,4 +1,4 @@
-_commit: v0.1.30
+_commit: v0.1.31-alpha.79
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 expire_local_check_slots:
@@ -28,10 +28,10 @@ generate_check: false
 github_templates: true
 local_check_retention: true
 manage_roadmap: true
+native_check_keep_seconds: 86400
 project_guide: ''
 publisher_workflow: Release
 release_plan: {}
 repository: chrono-harness/chrono-harness-test-git
 required_check: check
 strict_host_adapters: {}
-
