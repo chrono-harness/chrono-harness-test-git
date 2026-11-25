@@ -11,6 +11,20 @@ use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 verus! {
 fn expect(value: bool) requires value, { if !value { panic!(); } }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn environment_errors_precede_trace_creation() {
+    proof {
+        reveal_strlit("declared");
+        reveal_strlit("");
+        reveal_strlit("wrong");
+    }
+    expect(policy::environment_exit("", 0).unwrap_or(0) == 81);
+    expect(policy::environment_exit("wrong", 8).unwrap_or(0) == 81);
+    expect(policy::environment_exit("declared", 1).unwrap_or(0) == 82);
+    expect(policy::environment_exit("declared", usize::MAX).unwrap_or(0) == 82);
+    expect(policy::environment_exit("declared", 0).is_none());
+}
+
 fn exact(result: Option<policy::Failure>, code: i32, stdout: &str, prefix: Option<u8>, stderr: &str, drain: bool)
     requires match result { Some(r) => policy::describes(r, code as int, stdout@, prefix, stderr@, drain), None => false },
 {

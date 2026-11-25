@@ -41,11 +41,10 @@ pub fn main() -> io::Result<()> {
             ),
             _ => failure(b"unknown registered Git fixture profile\n", 84),
         };
-    if env::var_os(bound).as_deref() != Some(OsStr::new("declared")) {
-        process::exit(81);
-    }
-    if env::var_os(ambient).is_some_and(|value| !value.is_empty()) {
-        process::exit(82);
+    let bound_value = env::var(bound).unwrap_or_default();
+    let ambient_bytes = env::var_os(ambient).map_or(0, |value| value.as_bytes().len());
+    if let Some(code) = crate::profile_failure::environment_exit(&bound_value, ambient_bytes) {
+        process::exit(code);
     }
     let arguments: Vec<_> = arguments.collect();
     let mut trace = OpenOptions::new()
