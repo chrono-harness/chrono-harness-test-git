@@ -12,6 +12,86 @@ verus! {
 fn expect(value: bool) requires value, { if !value { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn profile_command_observations_use_original_argument_bytes() {
+    let args = ["ls-tree".as_bytes(), "--version".as_bytes(), "--batch-check".as_bytes(),
+        "fetch".as_bytes(), "rev-parse".as_bytes(), &[255u8]];
+    let observed = policy::observe_arguments(&args);
+    proof {
+        use vstd::string::StringSliceAdditionalSpecFns;
+        reveal_strlit("--version"); reveal_strlit("ls-tree");
+        assert(args[0]@ == "ls-tree".spec_bytes());
+        assert(args[2]@.take(args[2].len() as int) =~= "--batch-check".spec_bytes());
+        assert(args[3]@ == "fetch".spec_bytes());
+        assert(args[4]@ == "rev-parse".spec_bytes());
+    }
+    expect(observed.tree && observed.fetch && observed.probe && observed.revision);
+    let empty = policy::observe_arguments(&[]);
+    expect(!empty.version && !empty.tree && !empty.fetch && !empty.probe && !empty.revision);
+    let version = policy::observe_arguments(&["--version".as_bytes()]);
+    expect(version.version);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn nonterminal_modes_select_their_registered_action_or_delegate() {
+    use policy::Action::*;
+    let on = policy::Arguments { version: true, tree: true, fetch: true, probe: true, revision: true };
+    let off = policy::Arguments { version: false, tree: false, fetch: false, probe: false, revision: false };
+    proof {
+        reveal_strlit("pass");
+        reveal_strlit("version-timeout");
+        reveal_strlit("read-timeout");
+        reveal_strlit("read-limit");
+        reveal_strlit("read-drift");
+        reveal_strlit("malformed-probe");
+        reveal_strlit("wrong-type-probe");
+        reveal_strlit("extra-probe-output");
+        reveal_strlit("read-failure");
+        reveal_strlit("version-exit");
+        reveal_strlit("probe-failure");
+        reveal_strlit("full-probe-failure");
+        reveal_strlit("full-fetch-failure");
+        reveal_strlit("scope-probe-failure");
+        reveal_strlit("unknown");
+        assert("version-timeout"@[0] != "malformed-probe"@[0]);
+        assert("read-timeout"@[5] != "read-failure"@[5]);
+        assert("read-timeout"@[0] != "version-exit"@[0]);
+        assert("read-limit"@[5] != "read-drift"@[5]);
+        assert("extra-probe-output"@[0] != "full-probe-failure"@[0]);
+        assert("extra-probe-output"@[0] != "full-fetch-failure"@[0]);
+        assert("read-failure"@[0] != "version-exit"@[0]);
+        assert("full-probe-failure"@[5] != "full-fetch-failure"@[5]);
+        assert("pass"@.len() == 4);
+        assert("version-timeout"@.len() == 15);
+        assert("read-timeout"@.len() == 12);
+        assert("read-limit"@.len() == 10);
+        assert("read-drift"@.len() == 10);
+        assert("malformed-probe"@.len() == 15);
+        assert("wrong-type-probe"@.len() == 16);
+        assert("extra-probe-output"@.len() == 18);
+        assert("read-failure"@.len() == 12);
+        assert("version-exit"@.len() == 12);
+        assert("probe-failure"@.len() == 13);
+        assert("full-probe-failure"@.len() == 18);
+        assert("full-fetch-failure"@.len() == 18);
+        assert("scope-probe-failure"@.len() == 19);
+        assert("unknown"@.len() == 7);
+    }
+    expect(matches!(policy::nonterminal_action("pass", false, on), Delegate));
+    expect(matches!(policy::nonterminal_action("version-timeout", true, on), VersionTimeout { prefix: true, seconds: 10 }));
+    expect(matches!(policy::nonterminal_action("version-timeout", false, on), VersionTimeout { prefix: false, seconds: 60 }));
+    expect(matches!(policy::nonterminal_action("read-timeout", false, on), ReadTimeout));
+    expect(matches!(policy::nonterminal_action("read-limit", true, on), BoundedOutput));
+    expect(matches!(policy::nonterminal_action("read-limit", false, on), ContinuousOutput));
+    expect(matches!(policy::nonterminal_action("read-drift", false, on), ReadDrift));
+    expect(matches!(policy::nonterminal_action("malformed-probe", false, on), MalformedProbe));
+    expect(matches!(policy::nonterminal_action("wrong-type-probe", true, on), ProbeReply { extra: false }));
+    expect(matches!(policy::nonterminal_action("extra-probe-output", true, on), ProbeReply { extra: true }));
+    expect(matches!(policy::nonterminal_action("read-limit", true, off), Delegate));
+    expect(matches!(policy::nonterminal_action("full-fetch-failure", true, off), Delegate));
+    expect(matches!(policy::nonterminal_action("unknown", true, on), Unknown));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn environment_errors_precede_trace_creation() {
     proof {
         reveal_strlit("declared");

@@ -106,17 +106,12 @@ pub fn main() -> io::Result<()> {
     drop(trace);
 
     let mode = env::var(bindings.mode).expect("registered Git fixture mode");
-    let probe = arguments
-        .iter()
-        .any(|argument| argument.as_bytes().starts_with(b"--batch-check"));
-    let fetch = arguments.iter().any(|argument| argument == "fetch");
-    let version = arguments
-        .first()
-        .is_some_and(|argument| argument == "--version");
-    let tree = arguments.iter().any(|argument| argument == "ls-tree");
+    use crate::profile_failure::{Action, nonterminal_action, observe_arguments, terminal_failure};
+    let raw: Vec<_> = arguments.iter().map(|arg| arg.as_bytes()).collect();
+    let flags = observe_arguments(&raw);
     let registration = bindings.registration;
     if let Some(result) =
-        crate::profile_failure::terminal_failure(&mode, registration, tree, version, probe, fetch)
+        terminal_failure(&mode, registration, flags.tree, flags.version, flags.probe, flags.fetch)
     {
         if result.drain_stdin {
             io::copy(&mut io::stdin(), &mut io::sink())?;
@@ -132,35 +127,31 @@ pub fn main() -> io::Result<()> {
         stderr.write_all(result.stderr.as_bytes())?;
         process::exit(result.code);
     }
-    match mode.as_str() {
-        "pass" => {}
-        "version-timeout" if version => {
-            if registration {
+    match nonterminal_action(&mode, registration, flags) {
+        Action::Delegate => {}
+        Action::VersionTimeout { prefix, seconds } => {
+            if prefix {
                 io::stdout().write_all(b"before-timeout")?;
                 io::stdout().flush()?;
             }
-            std::thread::sleep(std::time::Duration::from_secs(if registration {
-                10
-            } else {
-                60
-            }));
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
             return Ok(());
         }
-        "read-timeout" if tree => {
+        Action::ReadTimeout => {
             io::stdout().write_all(b"before-timeout")?;
             io::stdout().flush()?;
             std::thread::sleep(std::time::Duration::from_secs(60));
         }
-        "read-limit" if tree && registration => {
+        Action::BoundedOutput => {
             for _ in 0..400 {
                 io::stdout().write_all(b"0123456789012345678901234567890123456789")?;
             }
             io::stdout().flush()?;
         }
-        "read-limit" if tree => loop {
+        Action::ContinuousOutput => loop {
             io::stdout().write_all(b"0123456789abcdef")?;
         },
-        "read-drift" if arguments.iter().any(|argument| argument == "rev-parse") => {
+        Action::ReadDrift => {
             let output = crate::run(
                 env::current_dir()?,
                 &arguments
@@ -192,39 +183,26 @@ pub fn main() -> io::Result<()> {
             }
             return Ok(());
         }
-        "malformed-probe" if probe => {
+        Action::MalformedProbe => {
             io::copy(&mut io::stdin(), &mut io::sink())?;
             io::stdout().write_all(b"not-the-request missing\n")?;
             return Ok(());
         }
-        "wrong-type-probe" | "extra-probe-output" if probe => {
+        Action::ProbeReply { extra } => {
             let mut oid = Vec::new();
             io::stdin().lock().read_until(b'\n', &mut oid)?;
             if oid.last() == Some(&b'\n') {
                 oid.pop();
             }
             io::stdout().write_all(&oid)?;
-            io::stdout().write_all(if mode == "wrong-type-probe" {
+            io::stdout().write_all(if !extra {
                 b" blob\n"
             } else {
                 b" commit\nextra\n"
             })?;
             return Ok(());
         }
-        "probe-failure"
-        | "malformed-probe"
-        | "wrong-type-probe"
-        | "extra-probe-output"
-        | "full-probe-failure"
-        | "full-fetch-failure"
-        | "scope-probe-failure"
-        | "read-failure"
-        | "read-drift"
-        | "read-timeout"
-        | "version-exit"
-        | "version-timeout"
-        | "read-limit" => {}
-        _ => failure(b"unknown registered Git fixture mode\n", 84),
+        Action::Unknown => failure(b"unknown registered Git fixture mode\n", 84),
     }
     crate::main();
     Ok(())
