@@ -1,13 +1,15 @@
 //! Finite command-boundary Git data for the explicitly registered test consumers.
 //! This is finite test data, not a Git implementation: unknown commands fail closed.
 #![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
 /// Only a full hook prefix permits the standard integer decoder to observe the exact suffix.
 pub fn hook_exit_suffix(message: &[u8]) -> (suffix: Option<&[u8]>)
     ensures ({
-        let prefix = b"fixture hook exit:"@;
+        let prefix = "fixture hook exit:".spec_bytes();
         match suffix {
             Some(value) => message.len() >= prefix.len() && message@.take(prefix.len() as int) == prefix
                 && value@ == message@.skip(prefix.len() as int),
@@ -16,7 +18,7 @@ pub fn hook_exit_suffix(message: &[u8]) -> (suffix: Option<&[u8]>)
     }),
 {
     use vstd::slice::slice_subrange;
-    let prefix: &[u8] = b"fixture hook exit:";
+    let prefix = "fixture hook exit:".as_bytes();
     if message.len() >= prefix.len() && same_bytes(slice_subrange(message, 0, prefix.len()), prefix) {
         Some(slice_subrange(message, prefix.len(), message.len()))
     } else { None }

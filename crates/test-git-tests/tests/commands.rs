@@ -14,6 +14,10 @@ fn expect(actual:bool) requires actual, { if !actual {panic!();} }
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn ordinary_model_errors_preserve_the_callers_exit_status() {
     proof {
+        reveal_strlit("fixture hook exit:"); vstd::string::is_ascii_spec_bytes("fixture hook exit:");
+        reveal_strlit("fixture hook exit:42"); vstd::string::is_ascii_spec_bytes("fixture hook exit:42");
+        reveal_strlit("fixture hook exit"); vstd::string::is_ascii_spec_bytes("fixture hook exit");
+        reveal_strlit("fixture hook exitx42"); vstd::string::is_ascii_spec_bytes("fixture hook exitx42");
         reveal_strlit("fixture apply conflict");
         reveal_strlit("fixture remote lease rejected");
         reveal_strlit("missing fixture reference");
@@ -57,11 +61,16 @@ fn ordinary_model_errors_preserve_the_callers_exit_status() {
         assert("unhandled"@.len() != "not a symbolic fixture ref"@.len());
         assert("unhandled"@.len() != "missing remote fixture reference"@.len());
     }
-    let full: &[u8] = b"fixture hook exit:42";
+    let full = "fixture hook exit:42".as_bytes();
+    proof {
+        use vstd::string::StringSliceAdditionalSpecFns;
+        assert(full@.take(18) =~= "fixture hook exit:".spec_bytes());
+        assert("fixture hook exitx42".spec_bytes()[17] != "fixture hook exit:".spec_bytes()[17]);
+    }
     let candidate = git::hook_exit_suffix(full);
     match candidate { Some(bytes) => { expect(bytes.len() == 2 && bytes[0] == 52 && bytes[1] == 50); }, None => { expect(false); }, }
-    expect(git::hook_exit_suffix(b"fixture hook exit").is_none());
-    expect(git::hook_exit_suffix(b"fixture hook exitx42").is_none());
+    expect(git::hook_exit_suffix("fixture hook exit".as_bytes()).is_none());
+    expect(git::hook_exit_suffix("fixture hook exitx42".as_bytes()).is_none());
     expect(git::model_error_exit("fixture apply conflict", None) == 1);
     expect(git::model_error_exit("fixture remote lease rejected", None) == 1);
     expect(git::model_error_exit("missing fixture reference", None) == 1);
