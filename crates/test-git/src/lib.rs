@@ -1,9 +1,50 @@
 //! Finite command-boundary Git data for the explicitly registered test consumers.
 //! This is finite test data, not a Git implementation: unknown commands fail closed.
 #![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
+/// Only a full hook prefix permits the standard integer decoder to observe the exact suffix.
+pub fn hook_exit_suffix(message: &[u8]) -> (suffix: Option<&[u8]>)
+    ensures ({
+        let prefix = "fixture hook exit:".spec_bytes();
+        match suffix {
+            Some(value) => message.len() >= prefix.len() && message@.take(prefix.len() as int) == prefix
+                && value@ == message@.skip(prefix.len() as int),
+            None => message.len() < prefix.len() || message@.take(prefix.len() as int) != prefix,
+        }
+    }),
+{
+    use vstd::slice::slice_subrange;
+    let prefix = "fixture hook exit:".as_bytes();
+    if message.len() >= prefix.len() && same_bytes(slice_subrange(message, 0, prefix.len()), prefix) {
+        Some(slice_subrange(message, prefix.len(), message.len()))
+    } else { None }
+}
+
+/// The native integer parser supplies a hook's status only after stripping the literal hook prefix.
+pub fn model_error_exit(message: &str, hook_status: Option<i32>) -> (code: i32)
+    ensures code == match hook_status {
+        Some(hook) => hook,
+        None => if message@ == "fixture apply conflict"@ || message@ == "fixture remote lease rejected"@
+            || message@ == "missing fixture reference"@ || message@ == "not a fixture ancestor"@
+            || message@ == "not a symbolic fixture ref"@ { 1i32 }
+            else if message@ == "missing remote fixture reference"@ { 2i32 }
+            else { 93i32 },
+    },
+{
+    if let Some(hook) = hook_status { return hook; }
+    if <&str>::exec_eq(message, "fixture apply conflict")
+        || <&str>::exec_eq(message, "fixture remote lease rejected")
+        || <&str>::exec_eq(message, "missing fixture reference")
+        || <&str>::exec_eq(message, "not a fixture ancestor")
+        || <&str>::exec_eq(message, "not a symbolic fixture ref") { 1 }
+    else if <&str>::exec_eq(message, "missing remote fixture reference") { 2 }
+    else { 93 }
+}
+
 pub fn known_git_command(command: &str) -> (allowed: bool)
     ensures allowed == (command@ == "--version"@ || command@ == "check-ref-format"@ || command@ == "init"@ || command@ == "clone"@ || command@ == "add"@ || command@ == "commit"@ || command@ == "commit-tree"@ || command@ == "rev-parse"@ || command@ == "show"@ || command@ == "ls-tree"@ || command@ == "cat-file"@ || command@ == "ls-files"@ || command@ == "config"@ || command@ == "diff"@ || command@ == "update-index"@ || command@ == "update-ref"@ || command@ == "reset"@ || command@ == "restore"@ || command@ == "checkout"@ || command@ == "switch"@ || command@ == "status"@ || command@ == "symbolic-ref"@ || command@ == "branch"@ || command@ == "show-ref"@ || command@ == "for-each-ref"@ || command@ == "remote"@ || command@ == "ls-remote"@ || command@ == "push"@ || command@ == "fetch"@ || command@ == "merge-base"@ || command@ == "rev-list"@ || command@ == "merge"@ || command@ == "write-tree"@ || command@ == "read-tree"@ || command@ == "mv"@ || command@ == "rm"@ || command@ == "replace"@ || command@ == "reflog"@ || command@ == "worktree"@ || command@ == "tag"@ || command@ == "apply"@),
 {
@@ -1666,21 +1707,10 @@ mod runtime {
             }
             Err(error) => {
                 eprintln!("{error}");
-                if let Some(code) = error
-                    .strip_prefix("fixture hook exit:")
-                    .and_then(|v| v.parse::<i32>().ok())
-                {
-                    std::process::exit(code);
-                }
-                std::process::exit(match error.as_str() {
-                    "fixture apply conflict"
-                    | "fixture remote lease rejected"
-                    | "missing fixture reference"
-                    | "not a fixture ancestor"
-                    | "not a symbolic fixture ref" => 1,
-                    "missing remote fixture reference" => 2,
-                    _ => 93,
-                });
+                let hook_status = super::hook_exit_suffix(error.as_bytes())
+                    .and_then(|suffix| std::str::from_utf8(suffix).ok())
+                    .and_then(|value| value.parse::<i32>().ok());
+                std::process::exit(super::model_error_exit(&error, hook_status));
             }
         }
     }
