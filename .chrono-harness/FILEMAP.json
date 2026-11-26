@@ -366,7 +366,27 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/actions.lock",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/workflows/check.yml",
