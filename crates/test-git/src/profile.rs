@@ -110,9 +110,14 @@ pub fn main() -> io::Result<()> {
     let raw: Vec<_> = arguments.iter().map(|arg| arg.as_bytes()).collect();
     let flags = observe_arguments(&raw);
     let registration = bindings.registration;
-    if let Some(result) =
-        terminal_failure(&mode, registration, flags.tree, flags.version, flags.probe, flags.fetch)
-    {
+    if let Some(result) = terminal_failure(
+        &mode,
+        registration,
+        flags.tree,
+        flags.version,
+        flags.probe,
+        flags.fetch,
+    ) {
         if result.drain_stdin {
             io::copy(&mut io::stdin(), &mut io::sink())?;
         }
