@@ -261,6 +261,22 @@
       }
     },
     {
+      "path": ".config/mise/conf.d/selected-chrono-harness.toml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".github/ISSUE_TEMPLATE/bug.yml",
       "owner": "host",
       "surface": "product",
