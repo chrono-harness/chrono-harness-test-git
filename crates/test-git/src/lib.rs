@@ -4,6 +4,24 @@
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
+/// Only a full hook prefix permits the standard integer decoder to observe the exact suffix.
+pub fn hook_exit_suffix(message: &[u8]) -> (suffix: Option<&[u8]>)
+    ensures ({
+        let prefix = b"fixture hook exit:"@;
+        match suffix {
+            Some(value) => message.len() >= prefix.len() && message@.take(prefix.len() as int) == prefix
+                && value@ == message@.skip(prefix.len() as int),
+            None => message.len() < prefix.len() || message@.take(prefix.len() as int) != prefix,
+        }
+    }),
+{
+    use vstd::slice::slice_subrange;
+    let prefix: &[u8] = b"fixture hook exit:";
+    if message.len() >= prefix.len() && same_bytes(slice_subrange(message, 0, prefix.len()), prefix) {
+        Some(slice_subrange(message, prefix.len(), message.len()))
+    } else { None }
+}
+
 /// The native integer parser supplies a hook's status only after stripping the literal hook prefix.
 pub fn model_error_exit(message: &str, hook_status: Option<i32>) -> (code: i32)
     ensures code == match hook_status {
@@ -1687,8 +1705,8 @@ mod runtime {
             }
             Err(error) => {
                 eprintln!("{error}");
-                let hook_status = error
-                    .strip_prefix("fixture hook exit:")
+                let hook_status = super::hook_exit_suffix(error.as_bytes())
+                    .and_then(|suffix| std::str::from_utf8(suffix).ok())
                     .and_then(|value| value.parse::<i32>().ok());
                 std::process::exit(super::model_error_exit(&error, hook_status));
             }
