@@ -329,10 +329,18 @@ mod runtime {
     fn hash(kind: &str, bytes: &[u8], width: usize) -> String {
         let mut framed = format!("{kind} {}\0", bytes.len()).into_bytes();
         framed.extend_from_slice(bytes);
+        fn lowercase_hex(bytes: &[u8]) -> String {
+            use std::fmt::Write;
+            let mut text = String::with_capacity(bytes.len() * 2);
+            for byte in bytes {
+                write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            text
+        }
         if width == 64 {
-            format!("{:x}", sha2::Sha256::digest(&framed))
+            lowercase_hex(&sha2::Sha256::digest(&framed))
         } else {
-            format!("{:x}", Sha1::digest(&framed))
+            lowercase_hex(&Sha1::digest(&framed))
         }
     }
     fn traversal_error(path: &Path, error: io::Error) -> io::Error {
