@@ -116,6 +116,69 @@ fn finite_ignore_patterns_and_line_boundaries() {
     expect(!git::ignored_text(&RULES, &BARE));
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn diff_reads_the_index_even_when_the_worktree_is_hidden() {
+    use git::DiffSource::*;
+    proof { reveal_strlit("h"); reveal_strlit("S"); reveal_strlit("H");
+        assert("H"@[0] != "h"@[0] && "H"@[0] != "S"@[0]);
+    }
+    expect(matches!(git::diff_source(true, Some("h")), Index));
+    expect(matches!(git::diff_source(true, Some("S")), Index));
+    expect(matches!(git::diff_source(false, Some("h")), Hidden));
+    expect(matches!(git::diff_source(false, Some("S")), Hidden));
+    expect(matches!(git::diff_source(false, Some("H")), Worktree));
+    expect(matches!(git::diff_source(false, None), Worktree));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn diff_compares_contents_types_and_presence() {
+    proof {
+        reveal_strlit("120000"); reveal_strlit("100644"); reveal_strlit("100755");
+        reveal_strlit("x"); reveal_strlit("y");
+        assert("x"@[0] != "y"@[0]);
+        assert("120000"@[1] != "100644"@[1] && "120000"@[1] != "100755"@[1]);
+        assert("100644"@[3] != "100755"@[3]);
+    }
+    let link = Some(("120000", "x"));
+    let file = Some(("100644", "x"));
+    let executable = Some(("100755", "x"));
+    let edited = Some(("100644", "y"));
+    expect(!git::diff_entry_changed(None, None, false, false, false));
+    expect(git::diff_entry_changed(file, None, false, false, false));
+    expect(git::diff_entry_changed(None, file, true, false, false));
+    expect(!git::diff_entry_changed(file, file, true, true, true));
+    expect(git::diff_entry_changed(file, edited, false, false, false));
+    expect(git::diff_entry_changed(link, edited, false, false, true));
+    expect(!git::diff_entry_changed(link, file, false, false, true));
+    expect(git::diff_entry_changed(link, file, true, false, true));
+    expect(git::diff_entry_changed(link, file, false, true, true));
+    expect(git::diff_entry_changed(file, link, false, false, true));
+    expect(git::diff_entry_changed(link, executable, false, false, true));
+    expect(git::diff_entry_changed(file, executable, false, false, true));
+    expect(!git::diff_entry_changed(file, executable, false, true, false));
+}
+
+const MIXED_BYTES: [u8; 9] = [13, 13, 10, 0, 255, 10, 13, 10, 13];
+const NORMALIZED: [u8; 7] = [13, 10, 0, 255, 10, 10, 13];
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn text_diff_preserves_every_byte_except_a_cr_before_lf() {
+    proof {
+        assert(git::normalized_prefix(MIXED_BYTES@, 9) == NORMALIZED@) by (compute);
+    }
+    let result = git::normalize_text(&MIXED_BYTES);
+    expect(result.len() == 7);
+    let mut i = 0;
+    while i < result.len()
+        invariant result@ == NORMALIZED@, i <= result.len(),
+        decreases result.len() - i,
+    {
+        expect(result[i] == NORMALIZED[i]);
+        i += 1;
+    }
+    expect(git::normalize_text(&[]).is_empty());
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -128,4 +191,51 @@ fn dispatch_rejects_unknown_commands_before_opening_a_repository() {
         run("BUILD").unwrap_err(),
         "unhandled Git fixture command: [\"BUILD\"]"
     );
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn diff_reads_staged_entries_even_when_worktree_comparisons_are_hidden() {
+    use std::{fs, os::unix::fs::symlink, process::Command};
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CHRONO_TEST_GIT_BIN"))
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
+        output.stdout
+    };
+    run(&["init", "-q", "-b", "dev"]);
+    symlink("target", root.join("alias")).unwrap();
+    fs::write(root.join("payload"), [13, 13, 10, 0, 255, 13]).unwrap();
+    fs::write(root.join(".gitattributes"), "payload text\n").unwrap();
+    run(&["add", "--all"]);
+    run(&["commit", "-qm", "base"]);
+    fs::remove_file(root.join("alias")).unwrap();
+    fs::write(root.join("alias"), "target").unwrap();
+    fs::write(root.join("payload"), [13, 10, 0, 255, 13]).unwrap();
+    let worktree = ["diff", "--name-only", "HEAD", "--"];
+    let staged = ["diff", "--cached", "--name-only"];
+    assert_eq!(run(&worktree), b"alias\npayload\n");
+    run(&["config", "core.symlinks", "false"]);
+    fs::write(root.join("payload"), [13, 13, 10, 0, 255, 13]).unwrap();
+    assert!(run(&worktree).is_empty());
+    fs::write(root.join("payload"), "staged edit").unwrap();
+    run(&["add", "payload"]);
+    run(&["add", "alias"]);
+    for flag in ["--skip-worktree", "--assume-unchanged"] {
+        run(&["update-index", flag, "payload"]);
+        assert!(run(&worktree).is_empty());
+        assert_eq!(run(&staged), b"alias\npayload\n");
+    }
+    run(&["update-index", "--no-assume-unchanged", "payload"]);
+    assert_eq!(run(&worktree), b"payload\n");
+    fs::write(root.join(".gitattributes"), "payload filter=hide\n").unwrap();
+    assert_eq!(run(&worktree), b".gitattributes\n");
+    assert_eq!(run(&staged), b"alias\npayload\n");
 }

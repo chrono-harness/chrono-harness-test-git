@@ -57,6 +57,79 @@ pub const COMMENT: u8 = 35;
 pub const CR: u8 = 13;
 pub const LF: u8 = 10;
 
+pub enum DiffSource { Index, Hidden, Worktree }
+
+pub fn diff_source(cached: bool, flag: Option<&str>) -> (source: DiffSource)
+    ensures match source {
+        DiffSource::Index => cached,
+        DiffSource::Hidden => !cached && match flag {
+            Some(f) => f@ == "h"@ || f@ == "S"@, None => false,
+        },
+        DiffSource::Worktree => !cached && match flag {
+            Some(f) => f@ != "h"@ && f@ != "S"@, None => true,
+        },
+    },
+{
+    if cached { return DiffSource::Index; }
+    if let Some(flag) = flag {
+        if <&str>::exec_eq(flag, "h") || <&str>::exec_eq(flag, "S") {
+            return DiffSource::Hidden;
+        }
+    }
+    DiffSource::Worktree
+}
+
+pub open spec fn normalized_prefix(bytes: Seq<u8>, end: int) -> Seq<u8>
+    decreases end,
+{
+    if 0 < end <= bytes.len() {
+        let prefix = normalized_prefix(bytes, end - 1);
+        if bytes[end - 1] == CR && end < bytes.len() && bytes[end] == LF {
+            prefix
+        } else { prefix.push(bytes[end - 1]) }
+    } else { Seq::empty() }
+}
+
+/// Drop only the CR immediately before an LF when a fixture text attribute applies.
+pub fn normalize_text(bytes: &[u8]) -> (result: Vec<u8>)
+    ensures result@ == normalized_prefix(bytes@, bytes.len() as int),
+{
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i < bytes.len()
+        invariant i <= bytes.len(), result@ == normalized_prefix(bytes@, i as int),
+        decreases bytes.len() - i,
+    {
+        if bytes[i] != CR || i + 1 == bytes.len() || bytes[i + 1] != LF {
+            result.push(bytes[i]);
+        }
+        i += 1;
+    }
+    result
+}
+
+/// Each entry is the observed (mode, object ID). Configuration only affects mode.
+pub fn diff_entry_changed(before: Option<(&str, &str)>, after: Option<(&str, &str)>,
+                          cached: bool, symlinks: bool, filemode: bool) -> (changed: bool)
+    ensures changed == match (before, after) {
+        (None, None) => false,
+        (Some((old_mode, old_oid)), Some((new_mode, new_oid))) =>
+            old_oid@ != new_oid@ || (filemode && old_mode@ != new_mode@
+                && (cached || symlinks || old_mode@ != "120000"@ || new_mode@ != "100644"@)),
+        _ => true,
+    },
+{
+    match (before, after) {
+        (Some((old_mode, old_oid)), Some((new_mode, new_oid))) => {
+            if !<&str>::exec_eq(old_oid, new_oid) { return true; }
+            if !filemode || <&str>::exec_eq(old_mode, new_mode) { return false; }
+            cached || symlinks || !<&str>::exec_eq(old_mode, "120000") || !<&str>::exec_eq(new_mode, "100644")
+        },
+        (None, None) => false,
+        _ => true,
+    }
+}
+
 pub open spec fn first_non_slash(line: Seq<u8>, i: int) -> int
     decreases line.len() - i,
 {
@@ -934,7 +1007,7 @@ mod runtime {
                             bytes = b"canonical\n".to_vec();
                         }
                         if attrs.contains("payload text") {
-                            bytes = bytes.replace_crlf();
+                            bytes = super::normalize_text(&bytes);
                         }
                         e.oid = hash("blob", &bytes, repo.width);
                     }
@@ -1572,21 +1645,6 @@ mod runtime {
             _ => return extra(&root, &mut repo, &a, input),
         }
         Ok(out)
-    }
-
-    trait CrLf {
-        fn replace_crlf(&self) -> Vec<u8>;
-    }
-    impl CrLf for Vec<u8> {
-        fn replace_crlf(&self) -> Vec<u8> {
-            let mut out = Vec::new();
-            for (i, b) in self.iter().enumerate() {
-                if *b != b'\r' || self.get(i + 1) != Some(&b'\n') {
-                    out.push(*b);
-                }
-            }
-            out
-        }
     }
 
     pub fn main() {
@@ -2554,51 +2612,39 @@ mod runtime {
     ) -> Result<String, String> {
         let paths: std::collections::BTreeSet<_> =
             snapshot.keys().chain(repo.index.keys()).cloned().collect();
+        use super::DiffSource;
+        let symlinks = repo.config.get("core.symlinks").map(String::as_str) != Some("false");
+        let filemode = repo.config.get("core.filemode").map(String::as_str) != Some("false");
+        fn fields(e: &Entry) -> (&str, &str) {
+            (e.mode.as_str(), e.oid.as_str())
+        }
         let mut out = String::new();
         for path in paths {
-            if !cached && repo.flags.get(&path).is_some_and(|v| v == "h" || v == "S") {
-                continue;
-            }
-            if !cached && clean_filter_path(root, &path) {
-                continue;
-            }
-            let actual = if cached {
-                repo.index.get(&path).cloned()
-            } else {
-                entry(root, &path, repo.width).ok().map(|(mut e, bytes)| {
-                    if attribute(root, &path, "text") {
-                        let normalized: Vec<_> = bytes
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(i, b)| {
-                                if *b == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
-                                    None
-                                } else {
-                                    Some(*b)
-                                }
-                            })
-                            .collect();
-                        e.oid = hash("blob", &normalized, repo.width);
+            let observed;
+            let actual = match super::diff_source(cached, repo.flags.get(&path).map(String::as_str))
+            {
+                DiffSource::Index => repo.index.get(&path),
+                DiffSource::Hidden => continue,
+                DiffSource::Worktree => {
+                    if clean_filter_path(root, &path) {
+                        continue;
                     }
-                    if repo.config.get("core.symlinks").map(String::as_str) == Some("false")
-                        && snapshot.get(&path).is_some_and(|e| e.mode == "120000")
-                        && e.mode == "100644"
-                    {
-                        e.mode = "120000".into();
-                    }
-                    e
-                })
-            };
-            if match (snapshot.get(&path), actual) {
-                (Some(x), Some(y)) => {
-                    x.oid != y.oid
-                        || (x.mode != y.mode
-                            && repo.config.get("core.filemode").map(String::as_str)
-                                != Some("false"))
+                    observed = entry(root, &path, repo.width).ok().map(|(mut e, bytes)| {
+                        if attribute(root, &path, "text") {
+                            e.oid = hash("blob", &super::normalize_text(&bytes), repo.width);
+                        }
+                        e
+                    });
+                    observed.as_ref()
                 }
-                (None, None) => false,
-                _ => true,
-            } {
+            };
+            if super::diff_entry_changed(
+                snapshot.get(&path).map(fields),
+                actual.map(fields),
+                cached,
+                symlinks,
+                filemode,
+            ) {
                 out.push_str(&path);
                 out.push('\n');
             }
