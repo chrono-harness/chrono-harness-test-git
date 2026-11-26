@@ -12,6 +12,33 @@ use vstd::{prelude::*, vpanic as panic};
 verus! {
 fn expect(actual:bool) requires actual, { if !actual {panic!();} }
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn ordinary_model_errors_preserve_the_callers_exit_status() {
+    proof {
+        reveal_strlit("fixture apply conflict");
+        reveal_strlit("fixture remote lease rejected");
+        reveal_strlit("missing fixture reference");
+        reveal_strlit("not a fixture ancestor");
+        reveal_strlit("not a symbolic fixture ref");
+        reveal_strlit("missing remote fixture reference");
+        reveal_strlit("fixture hook exit:oops");
+        reveal_strlit("missing fixture reference ");
+        reveal_strlit("unhandled");
+    }
+    expect(git::model_error_exit("fixture apply conflict", None) == 1);
+    expect(git::model_error_exit("fixture remote lease rejected", None) == 1);
+    expect(git::model_error_exit("missing fixture reference", None) == 1);
+    expect(git::model_error_exit("not a fixture ancestor", None) == 1);
+    expect(git::model_error_exit("not a symbolic fixture ref", None) == 1);
+    expect(git::model_error_exit("missing remote fixture reference", None) == 2);
+    expect(git::model_error_exit("fixture hook exit:oops", None) == 93);
+    expect(git::model_error_exit("missing fixture reference ", None) == 93);
+    expect(git::model_error_exit("unhandled", None) == 93);
+    expect(git::model_error_exit("fixture hook exit:42", Some(42)) == 42);
+    expect(git::model_error_exit("fixture hook exit:0", Some(0)) == 0);
+    expect(git::model_error_exit("fixture hook exit:-1", Some(-1)) == -1);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn known_git_command_independent_boundaries() {
     proof {
         reveal_strlit("tag"); reveal_strlit("apply");
