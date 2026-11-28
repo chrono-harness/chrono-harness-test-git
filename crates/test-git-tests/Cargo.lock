@@ -45,6 +45,7 @@ name = "chrono-test-git-tests"
 version = "0.1.0"
 dependencies = [
  "chrono-test-git",
+ "sha2",
  "tempfile",
  "vstd",
 ]

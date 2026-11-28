@@ -4,6 +4,27 @@
   "status": "proposed",
   "files": [
     {
+      "path": "crates/test-git-tests/tests/deployed_adoption.rs",
+      "owner": "test-git-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git-tests/tests/deployed_adoption.rs",
+            "operation": "verify.deployed-adoption"
+          }
+        ]
+      }
+    },
+    {
       "path": ".chrono-harness/.gitignore",
       "owner": "host",
       "surface": "product",
@@ -107,7 +128,16 @@
           "kind": "test-execution",
           "to": "test:test-git-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git-tests/tests/deployed_adoption.rs",
+            "operation": "verify.deployed-adoption"
+          }
+        ]
+      }
     },
     {
       "path": ".chrono-harness/judges.json",
@@ -359,17 +389,41 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git-tests/tests/deployed_adoption.rs",
+            "operation": "verify.deployed-adoption"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/issue-roadmap.yml",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": [],
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:test-git-tests"
+        }
+      ],
       "verification": {
-        "role": "data",
-        "roots": []
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/test-git-tests/tests/deployed_adoption.rs",
+            "operation": "verify.deployed-adoption"
+          }
+        ]
       }
     },
     {
@@ -759,6 +813,7 @@
         "verify.test-git-commands-tests",
         "verify.test-git-profile-failures",
         "verify.test-git-profile-failures-tests",
+        "verify.deployed-adoption",
         "test-git.owner-check"
       ],
       "timeout_seconds": 600,
