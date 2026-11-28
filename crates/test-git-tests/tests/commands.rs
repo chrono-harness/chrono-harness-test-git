@@ -9,6 +9,58 @@ use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::{prelude::*, vpanic as panic};
 
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn porcelain_cli_preserves_column_order_and_delimiters() {
+    use std::{fs, os::unix::fs::PermissionsExt, process::Command};
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let git = |args: &[&str]| {
+        let output = Command::new(env!("CHRONO_TEST_GIT_BIN"))
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
+        output.stdout
+    };
+    git(&["init", "-q", "-b", "dev"]);
+    fs::write(root.join(".gitignore"), "*.ignored\n").unwrap();
+    for path in ["both.ignored", "dropped", "staged-mode", "working-mode"] {
+        fs::write(root.join(path), b"base").unwrap();
+        fs::set_permissions(root.join(path), fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    git(&["add", "."]);
+    git(&["add", "-f", "both.ignored"]);
+    git(&["commit", "-qm", "base"]);
+    assert_eq!(git(&["status", "--porcelain", "-z"]), b"");
+
+    fs::write(root.join("both.ignored"), b"staged").unwrap();
+    git(&["add", "-f", "both.ignored"]);
+    fs::write(root.join("both.ignored"), b"working").unwrap();
+    git(&["update-index", "--force-remove", "dropped"]);
+    git(&["update-index", "--chmod=+x", "staged-mode"]);
+    fs::set_permissions(root.join("working-mode"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(root.join("untracked"), b"visible").unwrap();
+    fs::write(root.join("new.ignored"), b"hidden").unwrap();
+    assert_eq!(
+        git(&["status", "--porcelain=v1", "-z"]),
+        b"MM both.ignored\0D  dropped\0MM staged-mode\0 M working-mode\0?? untracked\0"
+    );
+    git(&["config", "core.filemode", "false"]);
+    assert_eq!(
+        git(&["status", "--porcelain"]),
+        b"MM both.ignored\nD  dropped\nM  staged-mode\n?? untracked\n"
+    );
+    fs::remove_file(root.join("untracked")).unwrap();
+    assert_eq!(
+        git(&["status", "--short", "--ignored", "-z"]),
+        b"MM both.ignored\0D  dropped\0M  staged-mode\0!! new.ignored\0"
+    );
+}
+
 verus! {
 fn expect(actual:bool) requires actual, { if !actual {panic!();} }
 #[cfg_attr(not(verus_keep_ghost), test)]
@@ -230,6 +282,52 @@ fn diff_compares_contents_types_and_presence() {
     expect(git::diff_entry_changed(link, executable, false, false, true));
     expect(git::diff_entry_changed(file, executable, false, false, true));
     expect(!git::diff_entry_changed(file, executable, false, true, false));
+}
+
+fn expect_status(actual: Option<(u8, u8)>, first: u8, second: u8)
+    requires actual == Some((first, second)),
+{
+    match actual {
+        Some((left, right)) => expect(left == first && right == second),
+        None => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn porcelain_selects_tracked_and_untracked_records_independently() {
+    proof {
+        reveal_strlit("100644"); reveal_strlit("100755"); reveal_strlit("120000");
+        reveal_strlit("x"); reveal_strlit("y"); reveal_strlit("z");
+        reveal_strlit("false"); reveal_strlit("False");
+        assert("x"@[0] != "y"@[0] && "y"@[0] != "z"@[0]);
+        assert("100644"@[3] != "100755"@[3]);
+        assert("120000"@[1] != "100644"@[1]);
+        assert("false"@[0] != "False"@[0]);
+    }
+    let head = Some(("100644", "x"));
+    let index = Some(("100644", "y"));
+    let working = Some(("100644", "z"));
+    let executable = Some(("100755", "x"));
+    let symlink = Some(("120000", "x"));
+
+    expect(git::status_tracked(None, None, working, None).is_none());
+    expect(git::status_tracked(head, head, head, None).is_none());
+    expect_status(git::status_tracked(head, index, working, Some("false")), 'M' as u8, 'M' as u8);
+    expect_status(git::status_tracked(None, index, None, None), 'A' as u8, 'D' as u8);
+    expect_status(git::status_tracked(head, None, working, None), 'D' as u8, ' ' as u8);
+    expect_status(git::status_tracked(head, executable, head, Some("false")), 'M' as u8, ' ' as u8);
+    expect_status(git::status_tracked(head, head, executable, Some("False")), ' ' as u8, 'M' as u8);
+    expect_status(git::status_tracked(symlink, symlink, head, None), ' ' as u8, 'M' as u8);
+    expect(git::status_tracked(head, head, executable, Some("false")).is_none());
+
+    expect(git::status_untracked(true, true, true).is_none());
+    expect(git::status_untracked(true, false, false).is_none());
+    expect(git::status_untracked(false, true, false).is_none());
+    expect_status(git::status_untracked(false, true, true), '!' as u8, '!' as u8);
+    expect_status(git::status_untracked(false, false, false), '?' as u8, '?' as u8);
+    expect_status(git::status_untracked(false, false, true), '?' as u8, '?' as u8);
+    expect(git::status_terminator(true) == 0);
+    expect(git::status_terminator(false) == 10);
 }
 
 const MIXED_BYTES: [u8; 9] = [13, 13, 10, 0, 255, 10, 13, 10, 13];
