@@ -246,6 +246,86 @@ pub fn status_terminator(nul: bool) -> (terminator: u8)
     if nul { 0 } else { LF }
 }
 
+/// A visited commit is always retained. Its physical parents enter the walk
+/// only away from the requested depth, and a root never marks a boundary.
+pub fn depth_step(depth: Option<usize>, level: usize, has_parents: bool)
+    -> (step: (bool, bool))
+    ensures
+        step.0 == (has_parents && depth != Some(level)),
+        step.1 == (has_parents && depth == Some(level)),
+{
+    let at_depth = match depth {
+        Some(limit) => limit == level,
+        None => false,
+    };
+    (has_parents && !at_depth, has_parents && at_depth)
+}
+
+/// A shallow commit still carries its physical parents, but rev-list neither
+/// follows nor emits them.
+pub fn revision_parents<T>(shallow: bool, physical: Option<&Vec<T>>)
+    -> (visible: Option<&Vec<T>>)
+    ensures visible == if shallow { None } else { physical },
+{
+    if shallow { None } else { physical }
+}
+
+/// The two effects are ordered by the caller: clear the old boundary first,
+/// then write a nonempty new boundary if a depth was requested.
+pub fn fetch_shallow_effect(unshallow: bool, has_depth: bool, new_boundary_empty: bool)
+    -> (effect: (bool, bool))
+    ensures
+        effect.0 == unshallow,
+        effect.1 == (has_depth && !new_boundary_empty),
+{
+    (unshallow, has_depth && !new_boundary_empty)
+}
+
+/// No destination observation is needed when the object was already handled
+/// in this fetch. An observed existing object needs no write.
+pub fn fetch_object_destination<T>(observation: Option<(T, bool)>) -> (write: Option<T>)
+    ensures write == match observation {
+        Some((target, false)) => Some(target),
+        _ => None,
+    },
+{
+    match observation {
+        Some((target, exists)) if !exists => Some(target),
+        _ => None,
+    }
+}
+
+pub enum CatFileOutput {
+    Silent,
+    Kind,
+    Bytes,
+}
+
+/// None rejects a typed read before opening the object. Every accepted mode
+/// still requires the object to be readable, including -e and -t.
+pub fn cat_file_output(mode: &str, kind: &str) -> (output: Option<CatFileOutput>)
+    ensures
+        output == if mode@ == "-e"@ {
+            Some(CatFileOutput::Silent)
+        } else if mode@ == "-t"@ {
+            Some(CatFileOutput::Kind)
+        } else if mode@ == "-p"@ || mode@ == kind@ {
+            Some(CatFileOutput::Bytes)
+        } else {
+            None
+        },
+{
+    if <&str>::exec_eq(mode, "-e") {
+        Some(CatFileOutput::Silent)
+    } else if <&str>::exec_eq(mode, "-t") {
+        Some(CatFileOutput::Kind)
+    } else if <&str>::exec_eq(mode, "-p") || <&str>::exec_eq(mode, kind) {
+        Some(CatFileOutput::Bytes)
+    } else {
+        None
+    }
+}
+
 pub open spec fn first_non_slash(line: Seq<u8>, i: int) -> int
     decreases line.len() - i,
 {
@@ -363,6 +443,10 @@ pub fn ignored_text(text: &[u8], path: &[u8]) -> (matched: bool)
 #[cfg(not(any(verus_keep_ghost, test)))]
 #[path = "."]
 mod runtime {
+    use super::{
+        CatFileOutput, cat_file_output, depth_step, fetch_object_destination, fetch_shallow_effect,
+        revision_parents,
+    };
     use serde::{Deserialize, Serialize};
     use sha1::{Digest, Sha1};
     use std::{
@@ -615,6 +699,31 @@ mod runtime {
             .get(&resolve(repo, name))
             .ok_or_else(|| format!("missing fixture commit {name}"))
     }
+
+    fn history_at_depth(
+        parents: &BTreeMap<String, Vec<String>>,
+        tip: &str,
+        depth: Option<usize>,
+    ) -> (BTreeSet<String>, BTreeSet<String>) {
+        let mut retained = BTreeSet::new();
+        let mut boundary = BTreeSet::new();
+        let mut pending = vec![(tip.to_owned(), 1)];
+        while let Some((oid, level)) = pending.pop() {
+            if !retained.insert(oid.clone()) {
+                continue;
+            }
+            let physical = parents.get(&oid).map(Vec::as_slice).unwrap_or_default();
+            let (follow, mark_boundary) = depth_step(depth, level, !physical.is_empty());
+            if follow {
+                pending.extend(physical.iter().cloned().map(|parent| (parent, level + 1)));
+            }
+            if mark_boundary {
+                boundary.insert(oid);
+            }
+        }
+        (retained, boundary)
+    }
+
     fn object(
         repo: &Repository,
         query: &str,
@@ -1017,28 +1126,7 @@ mod runtime {
                 if depth == 0 {
                     return Err("fixture clone depth must be positive".into());
                 }
-                let mut retained = std::collections::BTreeSet::new();
-                let mut boundary = std::collections::BTreeSet::new();
-                let mut pending = vec![(repo.head.clone(), 1)];
-                while let Some((oid, level)) = pending.pop() {
-                    if !retained.insert(oid.clone()) {
-                        continue;
-                    }
-                    if level == depth {
-                        if repo.parents.get(&oid).is_some_and(|p| !p.is_empty()) {
-                            boundary.insert(oid);
-                        }
-                    } else {
-                        pending.extend(
-                            repo.parents
-                                .get(&oid)
-                                .into_iter()
-                                .flatten()
-                                .cloned()
-                                .map(|p| (p, level + 1)),
-                        );
-                    }
-                }
+                let (retained, boundary) = history_at_depth(&repo.parents, &repo.head, Some(depth));
                 // Boundary commit bytes retain their physical parent headers,
                 // but unavailable ancestors must not pass cat-file before fetch.
                 for oid in repo.commits.keys().filter(|oid| !retained.contains(*oid)) {
@@ -1354,22 +1442,16 @@ mod runtime {
                             out.push(b'\n');
                         }
                     }
-                } else if a.len() == 3 && matches!(a[1], "-e" | "-t" | "-p") {
+                } else if a.len() == 3 && matches!(a[1], "-e" | "-t" | "-p" | "blob" | "commit") {
                     let (oid, kind) = object(&repo, a[2], !no_replace_objects)?;
+                    let output = cat_file_output(a[1], kind).ok_or("wrong fixture object type")?;
                     let bytes = fs::read(common(&root).join("objects").join(oid))
                         .map_err(|e| e.to_string())?;
-                    if a[1] == "-t" {
-                        out = format!("{kind}\n").into_bytes();
-                    } else if a[1] == "-p" {
-                        out = bytes;
+                    match output {
+                        CatFileOutput::Silent => {}
+                        CatFileOutput::Kind => out = format!("{kind}\n").into_bytes(),
+                        CatFileOutput::Bytes => out = bytes,
                     }
-                } else if a.len() == 3 && matches!(a[1], "blob" | "commit") {
-                    let (oid, kind) = object(&repo, a[2], !no_replace_objects)?;
-                    if kind != a[1] {
-                        return Err("wrong fixture object type".into());
-                    }
-                    out = fs::read(common(&root).join("objects").join(oid))
-                        .map_err(|e| e.to_string())?;
                 } else {
                     return Err(format!("unhandled cat-file {a:?}"));
                 }
@@ -2105,29 +2187,7 @@ mod runtime {
                     if depth == Some(0) {
                         return Err("fixture fetch depth must be positive".into());
                     }
-                    let mut retained = std::collections::BTreeSet::new();
-                    let mut boundary = std::collections::BTreeSet::new();
-                    let mut pending = vec![(oid.clone(), 1)];
-                    while let Some((current, level)) = pending.pop() {
-                        if !retained.insert(current.clone()) {
-                            continue;
-                        }
-                        if depth == Some(level) {
-                            if other.parents.get(&current).is_some_and(|p| !p.is_empty()) {
-                                boundary.insert(current);
-                            }
-                        } else {
-                            pending.extend(
-                                other
-                                    .parents
-                                    .get(&current)
-                                    .into_iter()
-                                    .flatten()
-                                    .cloned()
-                                    .map(|p| (p, level + 1)),
-                            );
-                        }
-                    }
+                    let (retained, mut boundary) = history_at_depth(&other.parents, &oid, depth);
                     let source_objects = common(&path).join("objects");
                     let target_objects = common(root).join("objects");
                     let mut imported = BTreeSet::<String>::new();
@@ -2139,12 +2199,16 @@ mod runtime {
                             .chain(std::iter::once(&tree_oid))
                             .chain(snapshot.values().map(|entry| &entry.oid))
                         {
-                            if imported.insert(object.clone()) {
+                            let observed = if imported.insert(object.clone()) {
                                 let target = target_objects.join(object);
-                                if !target.try_exists().map_err(|e| e.to_string())? {
-                                    fs::copy(source_objects.join(object), target)
-                                        .map_err(|e| e.to_string())?;
-                                }
+                                let exists = target.try_exists().map_err(|e| e.to_string())?;
+                                Some((target, exists))
+                            } else {
+                                None
+                            };
+                            if let Some(target) = fetch_object_destination(observed) {
+                                fs::copy(source_objects.join(object), target)
+                                    .map_err(|e| e.to_string())?;
                             }
                         }
                         repo.trees.insert(tree_oid, snapshot.clone());
@@ -2166,10 +2230,15 @@ mod runtime {
                     }
                     fs::write(common(root).join("FETCH_HEAD"), format!("{oid}\n"))
                         .map_err(|e| e.to_string())?;
-                    if a.contains(&"--unshallow") {
+                    let (clear_boundary, write_boundary) = fetch_shallow_effect(
+                        a.contains(&"--unshallow"),
+                        depth.is_some(),
+                        boundary.is_empty(),
+                    );
+                    if clear_boundary {
                         let _ = fs::remove_file(common(root).join("shallow"));
                     }
-                    if depth.is_some() && !boundary.is_empty() {
+                    if write_boundary {
                         let previous =
                             fs::read_to_string(common(root).join("shallow")).unwrap_or_default();
                         boundary.extend(previous.lines().map(str::to_owned));
@@ -2291,9 +2360,10 @@ mod runtime {
                         continue;
                     }
                     selected.push(next.clone());
-                    if !shallow.contains(&next) {
-                        pending
-                            .extend(repo.parents.get(&next).into_iter().flatten().rev().cloned());
+                    if let Some(parents) =
+                        revision_parents(shallow.contains(&next), repo.parents.get(&next))
+                    {
+                        pending.extend(parents.iter().rev().cloned());
                     }
                 }
                 if a.contains(&"--count") {
@@ -2310,8 +2380,12 @@ mod runtime {
                 };
                 for oid in selected.into_iter().take(limit) {
                     out.extend_from_slice(oid.as_bytes());
-                    if a.contains(&"--parents") && !shallow.contains(&oid) {
-                        for parent in repo.parents.get(&oid).into_iter().flatten() {
+                    if a.contains(&"--parents") {
+                        for parent in
+                            revision_parents(shallow.contains(&oid), repo.parents.get(&oid))
+                                .into_iter()
+                                .flatten()
+                        {
                             out.extend_from_slice(format!(" {parent}").as_bytes());
                         }
                     }
