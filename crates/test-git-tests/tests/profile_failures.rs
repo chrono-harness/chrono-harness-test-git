@@ -9,6 +9,11 @@ use vstd::vpanic as panic;
 use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 verus! {
+
+/// The deployed check is an input of this proof and its native consumer.
+pub fn native_check_script() -> &'static str {
+    include_str!("../../../check.sh")
+}
 fn expect(value: bool) requires value, { if !value { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
@@ -270,4 +275,15 @@ fn registered_environments_preserve_raw_inputs_and_first_error() {
             }
         }
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn native_check_matches_the_compiled_host_input() {
+    let deployed = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../check.sh");
+    assert_eq!(
+        std::fs::read(&deployed)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", deployed.display())),
+        native_check_script().as_bytes()
+    );
 }
