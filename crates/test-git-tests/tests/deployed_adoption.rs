@@ -18,11 +18,11 @@ pub fn matches_render(
     roadmap: &String,
     roadmap_workflow: &String,
 ) -> (matches: bool)
-    ensures matches == (installer@ == "39566b5b467e31e09edb73ffc0c79b6c719ef0f59b684df9c165bfb66048af47"@
+    ensures matches == (installer@ == "0a79a172801d92e96212034f0accaf3b4af3e4ec0f056cb3250e267bd64ecc5e"@
         && roadmap@ == "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a"@
         && roadmap_workflow@ == "2ffcde74437d601347b884741aa464f15c378d0db42461778ec556a55cf31e75"@),
 {
-    *installer == "39566b5b467e31e09edb73ffc0c79b6c719ef0f59b684df9c165bfb66048af47".to_string()
+    *installer == "0a79a172801d92e96212034f0accaf3b4af3e4ec0f056cb3250e267bd64ecc5e".to_string()
         && *roadmap == "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a".to_string()
         && *roadmap_workflow == "2ffcde74437d601347b884741aa464f15c378d0db42461778ec556a55cf31e75".to_string()
 }
