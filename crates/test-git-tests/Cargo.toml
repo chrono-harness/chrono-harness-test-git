@@ -8,3 +8,4 @@ publish = false
 chrono-test-git = { path = "../test-git" }
 tempfile = "3"
 vstd = "=0.0.0-2026-04-20-1748"
+sha2 = "0.11"
