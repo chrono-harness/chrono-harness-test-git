@@ -180,8 +180,150 @@ fn porcelain_cli_preserves_column_order_and_delimiters() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn caller_wire_keeps_compare_first_and_batch_bytes() {
+    use std::{
+        fs,
+        io::Write,
+        process::{Command, Stdio},
+    };
+
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path();
+    let call = |args: &[&str], input: &[u8]| {
+        let mut child = Command::new(env!("CHRONO_TEST_GIT_BIN"))
+            .current_dir(root)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let ok = |args: &[&str], input: &[u8]| {
+        let output = call(args, input);
+        assert_eq!(output.status.code(), Some(0), "{args:?}: {output:?}");
+        assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
+        output.stdout
+    };
+    ok(&["init", "-q", "-b", "dev"], b"");
+    fs::write(root.join("payload"), b"a\0b\n").unwrap();
+    ok(&["add", "."], b"");
+    ok(&["commit", "-qm", "base"], b"");
+    let head = ok(&["rev-parse", "HEAD"], b"");
+    let stale = call(
+        &["update-ref", "refs/heads/dev", "bad-new", "stale-old"],
+        b"",
+    );
+    assert_eq!(stale.status.code(), Some(93), "{stale:?}");
+    assert!(stale.stdout.is_empty(), "{stale:?}");
+    assert_eq!(stale.stderr, b"fixture update-ref compare failed\n");
+    assert_eq!(ok(&["rev-parse", "HEAD"], b""), head);
+
+    let oid = ok(&["rev-parse", "HEAD:payload"], b"");
+    let oid = std::str::from_utf8(&oid).unwrap().trim_end();
+    let expected = format!("{oid} blob 4\na\0b\n\nHEAD:missing missing\n");
+    assert_eq!(
+        ok(
+            &["cat-file", "--batch", "-z"],
+            b"HEAD:payload\0HEAD:missing\0"
+        ),
+        expected.as_bytes(),
+    );
+    assert_eq!(
+        ok(&["cat-file", "--batch-check"], b"HEAD:payload\n"),
+        format!("{oid} blob 4\n").as_bytes(),
+    );
+    assert_eq!(
+        ok(
+            &["cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            b"HEAD:payload\n"
+        ),
+        format!("{oid} blob\n").as_bytes(),
+    );
+}
+
 verus! {
 fn expect(actual:bool) requires actual, { if !actual {panic!();} }
+
+const DIRECTORY: [u8; 3] = [97, 47, 47];
+const DIRECTORY_CHILD: [u8; 3] = [97, 47, 98];
+const DIRECTORY_PREFIX: [u8; 2] = [97, 47];
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn runner_command_independent_boundaries() {
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    proof {
+        reveal_strlit("");
+        reveal_strlit("HEAD");
+        reveal_strlit("refs/heads/dev");
+        reveal_strlit("caller");
+        reveal_strlit("initializing");
+        reveal_strlit("--batch");
+        reveal_strlit("--batch-check");
+        reveal_strlit("--batch-check=%(objectname) %(objecttype)");
+        assert("--batch"@.len() != "--batch-check=%(objectname) %(objecttype)"@.len());
+        assert("--batch-check"@.len() != "--batch-check=%(objectname) %(objecttype)"@.len());
+        assert("--batch-check"@.len() != "--batch"@.len());
+    }
+    expect(git::ref_compare_allows(&[97], None));
+    expect(git::ref_compare_allows(&[97], Some(&[97])));
+    expect(!git::ref_compare_allows(&[97], Some(&[98])));
+    expect(git::ref_compare_allows(&[], Some(&[48])));
+    expect(!git::ref_compare_allows(&[], Some(&[48, 98])));
+    let branch = git::ref_update_target("HEAD", "refs/heads/dev", false);
+    expect(<&str>::exec_eq(branch, "refs/heads/dev"));
+    let detached = git::ref_update_target("HEAD", "refs/heads/dev", true);
+    expect(<&str>::exec_eq(detached, "HEAD"));
+    expect(git::push_tip_to_check(true, Some(1u32)).is_none());
+    expect(git::push_tip_to_check(false, None::<u32>).is_none());
+    expect(git::push_tip_to_check(false, Some(1u32)) == Some(1u32));
+    expect(git::push_accepts_ancestry(None));
+    expect(git::push_accepts_ancestry(Some(true)));
+    expect(!git::push_accepts_ancestry(Some(false)));
+
+    let donor = git::worktree_add_effect(true, false, None);
+    expect(!donor.0 && donor.1.is_none());
+    let checkout = git::worktree_add_effect(false, true, Some("caller"));
+    expect(checkout.0);
+    match checkout.1 {
+        Some(reason) => expect(<&str>::exec_eq(reason, "caller")),
+        None => expect(false),
+    }
+    let locked_donor = git::worktree_add_effect(true, true, None);
+    expect(!locked_donor.0);
+    match locked_donor.1 {
+        Some(reason) => expect(<&str>::exec_eq(reason, "initializing")),
+        None => expect(false),
+    }
+    expect(git::worktree_removal(true).is_err());
+    expect(git::worktree_removal(false).is_ok());
+
+    use git::BatchRecord::*;
+    expect(matches!(git::batch_record("--batch", false), Missing));
+    expect(matches!(git::batch_record("--batch", true), Content));
+    expect(matches!(git::batch_record("--batch-check", true), Size));
+    expect(matches!(git::batch_record("--batch-check=%(objectname) %(objecttype)", true), Type));
+    expect(git::batch_query_separator(false) == 10 && git::batch_query_separator(true) == 0);
+
+    let sibling = [97, 98];
+    expect(git::literal_path(&DIRECTORY_CHILD, &DIRECTORY_CHILD));
+    proof {
+        assert(git::after_last_non_slash(DIRECTORY@, 0, 3) == 1) by (compute);
+        assert(DIRECTORY_CHILD@.take(1) =~= DIRECTORY@.take(1)) by (compute);
+        assert(DIRECTORY_CHILD@[1] == 47) by (compute);
+        assert(DIRECTORY_CHILD@.take(2) =~= DIRECTORY_PREFIX@) by (compute);
+    }
+    expect(git::literal_path(&DIRECTORY_CHILD, &DIRECTORY));
+    expect(!git::literal_path(&sibling, &DIRECTORY));
+    expect(git::literal_prefix(&DIRECTORY_CHILD, &DIRECTORY_PREFIX));
+    expect(!git::literal_prefix(&sibling, &DIRECTORY_PREFIX));
+    expect(git::untracked_directory(false));
+    expect(!git::untracked_directory(true));
+}
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn shallow_history_independent_boundaries() {

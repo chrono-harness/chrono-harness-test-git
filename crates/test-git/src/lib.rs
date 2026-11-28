@@ -326,6 +326,152 @@ pub fn cat_file_output(mode: &str, kind: &str) -> (output: Option<CatFileOutput>
     }
 }
 
+pub open spec fn zero_ref(value: Seq<u8>) -> bool {
+    forall|i: int| 0 <= i < value.len() ==> #[trigger] value[i] == 48u8
+}
+
+fn is_zero_ref(value: &[u8]) -> (zero: bool)
+    ensures zero == zero_ref(value@),
+{
+    let mut index = 0;
+    while index < value.len()
+        invariant
+            index <= value.len(),
+            forall|i: int| 0 <= i < index ==> value@[i] == 48u8,
+        decreases value.len() - index,
+    {
+        if value[index] != 48 {
+            proof {
+                assert(!zero_ref(value@)) by {
+                    if zero_ref(value@) {
+                        assert(value@[index as int] == 48u8);
+                    }
+                }
+            }
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// A rejected compare takes precedence over decoding the replacement object.
+pub fn ref_compare_allows(current: &[u8], expected: Option<&[u8]>) -> (allowed: bool)
+    ensures allowed == match expected {
+        None => true,
+        Some(value) => current@ == value@ || (current.len() == 0 && zero_ref(value@)),
+    },
+{
+    match expected {
+        None => true,
+        Some(value) => same_bytes(current, value) || (current.is_empty() && is_zero_ref(value)),
+    }
+}
+
+pub fn ref_update_target<'a>(selected: &'a str, branch: &'a str, no_deref: bool) -> (target: &'a str)
+    ensures target@ == if selected@ == "HEAD"@ && !no_deref && branch@ != ""@ { branch@ } else { selected@ },
+{
+    if <&str>::exec_eq(selected, "HEAD") && !no_deref && !<&str>::exec_eq(branch, "") { branch }
+    else { selected }
+}
+
+/// Only non-forced updates to an existing destination need ancestry evidence.
+pub fn push_tip_to_check<T>(forced: bool, previous: Option<T>) -> (check: Option<T>)
+    ensures check == if forced { None } else { previous },
+{
+    if forced { None } else { previous }
+}
+
+pub fn push_accepts_ancestry(ancestor: Option<bool>) -> (accepted: bool)
+    ensures accepted == (ancestor != Some(false)),
+{
+    match ancestor { Some(value) => value, None => true }
+}
+
+/// The linked worktree can have metadata and a lock without an index or checkout.
+pub fn worktree_add_effect<'a>(no_checkout: bool, lock: bool, reason: Option<&'a str>)
+    -> (effect: (bool, Option<&'a str>))
+    ensures effect.0 == !no_checkout,
+        match effect.1 {
+            None => !lock,
+            Some(value) => lock && value@ == match reason { Some(text) => text@, None => "initializing"@ },
+        },
+{
+    (!no_checkout, if lock {
+        Some(match reason { Some(text) => text, None => "initializing" })
+    } else { None })
+}
+
+pub fn worktree_removal(locked: bool) -> (result: Result<(), &'static str>)
+    ensures match result {
+        Ok(()) => !locked,
+        Err(error) => locked && error@ == "fixture worktree is locked"@,
+    },
+{
+    if locked { Err("fixture worktree is locked") } else { Ok(()) }
+}
+
+pub enum BatchRecord {
+    Missing,
+    Type,
+    Size,
+    Content,
+}
+
+pub fn batch_record(mode: &str, found: bool) -> (record: BatchRecord)
+    ensures record == if !found { BatchRecord::Missing }
+        else if mode@ == "--batch-check=%(objectname) %(objecttype)"@ { BatchRecord::Type }
+        else if mode@ == "--batch"@ { BatchRecord::Content } else { BatchRecord::Size },
+{
+    if !found { BatchRecord::Missing }
+    else if <&str>::exec_eq(mode, "--batch-check=%(objectname) %(objecttype)") { BatchRecord::Type }
+    else if <&str>::exec_eq(mode, "--batch") { BatchRecord::Content }
+    else { BatchRecord::Size }
+}
+
+pub fn batch_query_separator(zero: bool) -> (separator: u8)
+    ensures separator == if zero { 0u8 } else { 10u8 },
+{
+    if zero { 0 } else { 10 }
+}
+
+pub fn literal_prefix(path: &[u8], prefix: &[u8]) -> (matches: bool)
+    ensures matches == (prefix.len() <= path.len() && path@.take(prefix.len() as int) == prefix@),
+{
+    use vstd::slice::slice_subrange;
+    prefix.len() <= path.len() && same_bytes(slice_subrange(path, 0, prefix.len()), prefix)
+}
+
+/// The finite path selection used by tree, index and staged deletion listings.
+pub fn literal_path(path: &[u8], selector: &[u8]) -> (matches: bool)
+    ensures ({
+        let prefix_end = after_last_non_slash(selector@, 0, selector.len() as int);
+        matches == (path@ == selector@ || (prefix_end < path.len()
+            && path@.take(prefix_end) == selector@.take(prefix_end) && path@[prefix_end] == SLASH))
+    }),
+{
+    use vstd::slice::slice_subrange;
+    if same_bytes(path, selector) { return true; }
+    let mut end = selector.len();
+    while end > 0 && selector[end - 1] == SLASH
+        invariant
+            end <= selector.len(),
+            after_last_non_slash(selector@, 0, end as int)
+                == after_last_non_slash(selector@, 0, selector.len() as int),
+        decreases end,
+    {
+        end -= 1;
+    }
+    assert(after_last_non_slash(selector@, 0, end as int) == end);
+    end < path.len() && path[end] == SLASH && literal_prefix(path, slice_subrange(selector, 0, end))
+}
+
+pub fn untracked_directory(tracked_descendant: bool) -> (collapse: bool)
+    ensures collapse == !tracked_descendant,
+{
+    !tracked_descendant
+}
+
 pub open spec fn first_non_slash(line: Seq<u8>, i: int) -> int
     decreases line.len() - i,
 {
@@ -1398,9 +1544,8 @@ mod runtime {
                     .map(Ok)
                     .unwrap_or_else(|| tree(&repo, revision))?;
                 for (path, e) in snapshot {
-                    if selected.is_some_and(|s| {
-                        s != path && !path.starts_with(&format!("{}/", s.trim_end_matches('/')))
-                    }) {
+                    if selected.is_some_and(|s| !super::literal_path(path.as_bytes(), s.as_bytes()))
+                    {
                         continue;
                     }
                     out.extend_from_slice(
@@ -1413,11 +1558,9 @@ mod runtime {
                     .is_some_and(|s| *s == "--batch" || s.starts_with("--batch-check"))
                     && (a.len() == 2 || (a.len() == 3 && a[2] == "-z"))
                 {
-                    let zero = a.contains(&"-z");
-                    for query in input
-                        .split(|b| *b == if zero { 0 } else { b'\n' })
-                        .filter(|s| !s.is_empty())
-                    {
+                    use super::BatchRecord;
+                    let separator = super::batch_query_separator(a.contains(&"-z"));
+                    for query in input.split(|b| *b == separator).filter(|s| !s.is_empty()) {
                         let query = std::str::from_utf8(query).map_err(|e| e.to_string())?;
                         let found = object(&repo, query, !no_replace_objects).ok().and_then(
                             |(oid, kind)| {
@@ -1426,20 +1569,26 @@ mod runtime {
                                     .map(|bytes| (oid, kind, bytes))
                             },
                         );
-                        let Some((oid, kind, bytes)) = found else {
-                            out.extend_from_slice(format!("{query} missing\n").as_bytes());
-                            continue;
-                        };
-                        if a[1] == "--batch-check=%(objectname) %(objecttype)" {
-                            out.extend_from_slice(format!("{oid} {kind}\n").as_bytes());
-                        } else {
-                            out.extend_from_slice(
-                                format!("{oid} {kind} {}\n", bytes.len()).as_bytes(),
-                            );
-                        }
-                        if a[1] == "--batch" {
-                            out.extend_from_slice(&bytes);
-                            out.push(b'\n');
+                        match (super::batch_record(a[1], found.is_some()), found) {
+                            (BatchRecord::Type, Some((oid, kind, _))) => {
+                                out.extend_from_slice(format!("{oid} {kind}\n").as_bytes());
+                            }
+                            (
+                                record @ (BatchRecord::Size | BatchRecord::Content),
+                                Some((oid, kind, bytes)),
+                            ) => {
+                                out.extend_from_slice(
+                                    format!("{oid} {kind} {}\n", bytes.len()).as_bytes(),
+                                );
+                                if let BatchRecord::Content = record {
+                                    out.extend_from_slice(&bytes);
+                                    out.push(b'\n');
+                                }
+                            }
+                            (BatchRecord::Missing, None) => {
+                                out.extend_from_slice(format!("{query} missing\n").as_bytes());
+                            }
+                            _ => unreachable!("batch record differs from object observation"),
                         }
                     }
                 } else if a.len() == 3 && matches!(a[1], "-e" | "-t" | "-p" | "blob" | "commit") {
@@ -1476,8 +1625,9 @@ mod runtime {
                     files.retain(|path| {
                         !selected.is_some_and(|paths| {
                             paths.iter().any(|s| {
-                                s.strip_prefix(":(top,exclude,literal)")
-                                    .is_some_and(|p| path.starts_with(p))
+                                s.strip_prefix(":(top,exclude,literal)").is_some_and(|p| {
+                                    super::literal_prefix(path.as_bytes(), p.as_bytes())
+                                })
                             })
                         })
                     });
@@ -1490,7 +1640,9 @@ mod runtime {
                         .map(|path| {
                             for (at, _) in path.match_indices('/') {
                                 let prefix = &path[..=at];
-                                if !repo.index.keys().any(|tracked| tracked.starts_with(prefix)) {
+                                if super::untracked_directory(repo.index.keys().any(|tracked| {
+                                    super::literal_prefix(tracked.as_bytes(), prefix.as_bytes())
+                                })) {
                                     return prefix.to_owned();
                                 }
                             }
@@ -1518,9 +1670,9 @@ mod runtime {
                     }
                     if selected.is_none()
                         && !operands.is_empty()
-                        && !operands.iter().any(|p| {
-                            path == *p || path.starts_with(&format!("{}/", p.trim_end_matches('/')))
-                        })
+                        && !operands
+                            .iter()
+                            .any(|p| super::literal_path(path.as_bytes(), p.as_bytes()))
                     {
                         continue;
                     }
@@ -1529,16 +1681,16 @@ mod runtime {
                             .iter()
                             .filter(|s| !s.starts_with(":("))
                             .any(|s| *s != ".")
-                            && !selected.iter().any(|s| {
-                                *s == path
-                                    || path.starts_with(&format!("{}/", s.trim_end_matches('/')))
-                            })
+                            && !selected
+                                .iter()
+                                .any(|s| super::literal_path(path.as_bytes(), s.as_bytes()))
                         {
                             continue;
                         }
                         if selected.iter().any(|s| {
-                            s.strip_prefix(":(top,exclude,literal)")
-                                .is_some_and(|p| path.starts_with(p))
+                            s.strip_prefix(":(top,exclude,literal)").is_some_and(|p| {
+                                super::literal_prefix(path.as_bytes(), p.as_bytes())
+                            })
                         }) {
                             continue;
                         }
@@ -1640,26 +1792,16 @@ mod runtime {
                 let delete = args.first() == Some(&"-d");
                 let at = usize::from(delete);
                 let selected = *args.get(at).ok_or("missing update-ref name")?;
-                let name = if selected == "HEAD"
-                    && !a.contains(&"--no-deref")
-                    && !repo.branch.is_empty()
-                {
-                    repo.branch.as_str()
-                } else {
-                    selected
-                };
+                let name =
+                    super::ref_update_target(selected, &repo.branch, a.contains(&"--no-deref"));
                 let current = if name == "HEAD" {
                     repo.head.as_str()
                 } else {
                     repo.refs.get(name).map(String::as_str).unwrap_or("")
                 };
-                let expected = args.get(at + if delete { 1 } else { 2 });
-                if let Some(expected) = expected {
-                    if current != *expected
-                        && !(expected.chars().all(|c| c == '0') && current.is_empty())
-                    {
-                        return Err("fixture update-ref compare failed".into());
-                    }
+                let expected = args.get(at + if delete { 1 } else { 2 }).copied();
+                if !super::ref_compare_allows(current.as_bytes(), expected.map(str::as_bytes)) {
+                    return Err("fixture update-ref compare failed".into());
                 }
                 if delete {
                     repo.refs.remove(name);
@@ -2290,12 +2432,9 @@ mod runtime {
                                 || a.contains(&"--force")
                                 || a.contains(&"-f")
                                 || a.iter().any(|arg| arg.starts_with("--force-with-lease="));
-                            if !forced
-                                && other
-                                    .refs
-                                    .get(&to)
-                                    .is_some_and(|old| !ancestor(&other, old, &oid))
-                            {
+                            let previous = super::push_tip_to_check(forced, other.refs.get(&to));
+                            let ancestry = previous.map(|old| ancestor(&other, old, &oid));
+                            if !super::push_accepts_ancestry(ancestry) {
                                 return Err("fixture remote non-fast-forward rejected".into());
                             }
                             other.refs.insert(to.clone(), oid.clone());
@@ -2514,8 +2653,7 @@ mod runtime {
                     };
                     for path in before.keys() {
                         if !repo.index.contains_key(path)
-                            && (path == a[8]
-                                || path.starts_with(&format!("{}/", a[8].trim_end_matches('/'))))
+                            && super::literal_path(path.as_bytes(), a[8].as_bytes())
                         {
                             out.extend_from_slice(path.as_bytes());
                             out.push(0);
@@ -2702,17 +2840,20 @@ mod runtime {
                     linked.refs.insert(linked.branch.clone(), oid.clone());
                 }
                 linked.head = oid.clone();
-                if a.contains(&"--no-checkout") {
-                    save(&path, &linked)?;
+                let lock = a.contains(&"--lock");
+                let reason = if lock {
+                    a.iter().position(|p| *p == "--reason").map(|i| a[i + 1])
                 } else {
+                    None
+                };
+                let (checkout_files, reason) =
+                    super::worktree_add_effect(a.contains(&"--no-checkout"), lock, reason);
+                if checkout_files {
                     checkout(&path, &mut linked, &oid)?;
+                } else {
+                    save(&path, &linked)?;
                 }
-                if a.contains(&"--lock") {
-                    let reason = a
-                        .iter()
-                        .position(|p| *p == "--reason")
-                        .map(|i| a[i + 1])
-                        .unwrap_or("initializing");
+                if let Some(reason) = reason {
                     fs::write(dir.join("locked"), format!("{reason}\n"))
                         .map_err(|e| e.to_string())?;
                 }
@@ -2734,9 +2875,7 @@ mod runtime {
             "remove" => {
                 let path = Path::new(a.last().ok_or("missing worktree path")?);
                 let dir = metadata(path);
-                if dir.join("locked").is_file() {
-                    return Err("fixture worktree is locked".into());
-                }
+                super::worktree_removal(dir.join("locked").is_file())?;
                 fs::remove_dir_all(path).map_err(|e| e.to_string())?;
                 fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
                 repo.worktrees.remove(path.to_str().unwrap());
