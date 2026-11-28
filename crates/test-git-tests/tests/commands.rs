@@ -214,6 +214,30 @@ fn caller_wire_keeps_compare_first_and_batch_bytes() {
     ok(&["add", "."], b"");
     ok(&["commit", "-qm", "base"], b"");
     let head = ok(&["rev-parse", "HEAD"], b"");
+    let base = String::from_utf8(head).unwrap();
+    ok(&["commit", "--allow-empty", "-qm", "child"], b"");
+    let head = ok(&["rev-parse", "HEAD"], b"");
+    let child = std::str::from_utf8(&head).unwrap().trim_end();
+    let base = base.trim_end();
+    assert_eq!(
+        ok(&["rev-parse", "HEAD^"], b""),
+        format!("{base}\n").as_bytes()
+    );
+    ok(&["replace", child, base], b"");
+    let overlay = ok(&["cat-file", "-p", child], b"");
+    let physical = ok(&["--no-replace-objects", "cat-file", "-p", child], b"");
+    assert!(
+        !String::from_utf8(overlay)
+            .unwrap()
+            .lines()
+            .any(|line| line.starts_with("parent "))
+    );
+    assert!(
+        String::from_utf8(physical)
+            .unwrap()
+            .lines()
+            .any(|line| line == format!("parent {base}"))
+    );
     let stale = call(
         &["update-ref", "refs/heads/dev", "bad-new", "stale-old"],
         b"",
@@ -221,7 +245,10 @@ fn caller_wire_keeps_compare_first_and_batch_bytes() {
     assert_eq!(stale.status.code(), Some(93), "{stale:?}");
     assert!(stale.stdout.is_empty(), "{stale:?}");
     assert_eq!(stale.stderr, b"fixture update-ref compare failed\n");
-    assert_eq!(ok(&["rev-parse", "HEAD"], b""), head);
+    assert_eq!(
+        ok(&["--no-replace-objects", "rev-parse", "HEAD"], b""),
+        head
+    );
 
     let oid = ok(&["rev-parse", "HEAD:payload"], b"");
     let oid = std::str::from_utf8(&oid).unwrap().trim_end();
@@ -301,6 +328,19 @@ fn runner_command_independent_boundaries() {
     }
     expect(git::worktree_removal(true).is_err());
     expect(git::worktree_removal(false).is_ok());
+
+    let overlay = git::commit_object_oid("HEAD", Some("refs/heads/dev"), true);
+    expect(<&str>::exec_eq(overlay, "refs/heads/dev"));
+    let physical = git::commit_object_oid("HEAD", Some("refs/heads/dev"), false);
+    expect(<&str>::exec_eq(physical, "HEAD"));
+    expect(!git::save_index(false, 0));
+    expect(git::save_index(true, 0));
+    expect(git::save_index(false, 1));
+    expect(!git::append_reflog(&[], &[97], true));
+    expect(!git::append_reflog(&[97], &[97], false));
+    expect(git::append_reflog(&[97], &[97], true));
+    expect(git::append_reflog(&[98], &[97], false));
+    expect(git::parent_slot(0) == 0 && git::parent_slot(1) == 0 && git::parent_slot(2) == 1);
 
     use git::BatchRecord::*;
     expect(matches!(git::batch_record("--batch", false), Missing));

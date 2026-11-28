@@ -411,6 +411,40 @@ pub fn worktree_removal(locked: bool) -> (result: Result<(), &'static str>)
     if locked { Err("fixture worktree is locked") } else { Ok(()) }
 }
 
+/// Explicit no-replace reads must expose the physical commit to initial inventory.
+pub fn commit_object_oid<'a>(original: &'a str, replacement: Option<&'a str>, apply_replace: bool)
+    -> (selected: &'a str)
+    ensures selected@ == match replacement {
+        Some(oid) if apply_replace => oid@,
+        _ => original@,
+    },
+{
+    match replacement {
+        Some(oid) if apply_replace => oid,
+        _ => original,
+    }
+}
+
+/// A donor with empty staged state retains the absence of its index.
+pub fn save_index(existing: bool, entries: usize) -> (write: bool)
+    ensures write == (existing || entries > 0),
+{
+    existing || entries > 0
+}
+
+/// Repeated metadata writes must not add another entry for the same HEAD.
+pub fn append_reflog(head: &[u8], previous: &[u8], empty_log: bool) -> (append: bool)
+    ensures append == (head.len() > 0 && (head@ != previous@ || empty_log)),
+{
+    !head.is_empty() && (!same_bytes(head, previous) || empty_log)
+}
+
+pub fn parent_slot(one_based: usize) -> (slot: usize)
+    ensures slot == if one_based == 0 { 0 } else { one_based - 1 },
+{
+    if one_based == 0 { 0 } else { one_based - 1 }
+}
+
 pub enum BatchRecord {
     Missing,
     Type,
@@ -822,7 +856,7 @@ mod runtime {
                 return repo
                     .parents
                     .get(&resolve(repo, base))
-                    .and_then(|p| p.get(count.parse::<usize>().unwrap_or(1).saturating_sub(1)))
+                    .and_then(|p| p.get(super::parent_slot(count.parse::<usize>().unwrap_or(1))))
                     .cloned()
                     .unwrap_or_default();
             }
@@ -889,12 +923,12 @@ mod runtime {
             let replacement = if apply_replace {
                 repo.refs
                     .get(&format!("refs/replace/{oid}"))
-                    .cloned()
-                    .unwrap_or(oid)
+                    .map(String::as_str)
             } else {
-                oid
+                None
             };
-            Ok((replacement, "commit"))
+            let selected = super::commit_object_oid(&oid, replacement, apply_replace);
+            Ok((selected.to_owned(), "commit"))
         } else if repo.tags.contains_key(&resolve(repo, query)) {
             Ok((resolve(repo, query), "tag"))
         } else if repo.trees.contains_key(query) {
@@ -914,7 +948,7 @@ mod runtime {
         // Metadata-only commands must not create an index in a --no-checkout
         // allocation. Its first read-tree/add operation supplies the index.
         let index = index_path(root);
-        if index.exists() || !repo.index.is_empty() {
+        if super::save_index(index.exists(), repo.index.len()) {
             fs::write(index, serde_json::to_vec(&repo.index).unwrap())
                 .map_err(|e| e.to_string())?;
         }
@@ -931,7 +965,11 @@ mod runtime {
         } else {
             previous.trim().to_owned()
         };
-        if !repo.head.is_empty() && (previous_oid != repo.head || reflog.is_empty()) {
+        if super::append_reflog(
+            repo.head.as_bytes(),
+            previous_oid.as_bytes(),
+            reflog.is_empty(),
+        ) {
             reflog.push(repo.head.clone());
         }
         fs::write(
