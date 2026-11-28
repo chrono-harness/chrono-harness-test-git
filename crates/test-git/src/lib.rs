@@ -171,6 +171,81 @@ pub fn diff_entry_changed(before: Option<(&str, &str)>, after: Option<(&str, &st
     }
 }
 
+/// Porcelain reports independent HEAD-to-index and index-to-worktree changes.
+pub fn status_tracked(
+    head: Option<(&str, &str)>,
+    index: Option<(&str, &str)>,
+    observed: Option<(&str, &str)>,
+    core_filemode: Option<&str>,
+) -> (record: Option<(u8, u8)>)
+    ensures ({
+        let staged = match (head, index) {
+            (None, Some(_)) => 'A' as u8,
+            (Some(_), None) => 'D' as u8,
+            (Some((old_mode, old_oid)), Some((new_mode, new_oid))) =>
+                if old_oid@ != new_oid@ || old_mode@ != new_mode@ { 'M' as u8 } else { ' ' as u8 },
+            (None, None) => ' ' as u8,
+        };
+        let honor_mode = match core_filemode {
+            Some(value) => value@ != "false"@,
+            None => true,
+        };
+        let working = match (index, observed) {
+            (Some(_), None) => 'D' as u8,
+            (Some((old_mode, old_oid)), Some((new_mode, new_oid))) =>
+                if old_oid@ != new_oid@ || (honor_mode && old_mode@ != new_mode@) {
+                    'M' as u8
+                } else { ' ' as u8 },
+            (None, _) => ' ' as u8,
+        };
+        if staged == ' ' as u8 && working == ' ' as u8 {
+            record.is_none()
+        } else {
+            record == Some((staged, working))
+        }
+    }),
+{
+    let staged = match (head, index) {
+        (None, Some(_)) => 'A' as u8,
+        (Some(_), None) => 'D' as u8,
+        _ if diff_entry_changed(head, index, true, true, true) => 'M' as u8,
+        _ => ' ' as u8,
+    };
+    let honor_mode = match core_filemode {
+        Some(value) => !<&str>::exec_eq(value, "false"),
+        None => true,
+    };
+    let working = match (index, observed) {
+        (None, _) => ' ' as u8,
+        (Some(_), None) => 'D' as u8,
+        // Status observes the mode supplied by entry even for a symlink transition.
+        _ if diff_entry_changed(index, observed, false, true, honor_mode) => 'M' as u8,
+        _ => ' ' as u8,
+    };
+    if staged == ' ' as u8 && working == ' ' as u8 { None } else { Some((staged, working)) }
+}
+
+pub fn status_untracked(is_tracked: bool, ignored: bool, report_ignored: bool) -> (record: Option<(u8, u8)>)
+    ensures
+        record.is_none() == (is_tracked || (ignored && !report_ignored)),
+        record.is_some() ==> record.unwrap().0 == (if ignored { '!' as u8 } else { '?' as u8 })
+            && record.unwrap().1 == record.unwrap().0,
+{
+    if is_tracked || (ignored && !report_ignored) {
+        None
+    } else if ignored {
+        Some(('!' as u8, '!' as u8))
+    } else {
+        Some(('?' as u8, '?' as u8))
+    }
+}
+
+pub fn status_terminator(nul: bool) -> (terminator: u8)
+    ensures terminator == if nul { 0 } else { LF },
+{
+    if nul { 0 } else { LF }
+}
+
 pub open spec fn first_non_slash(line: Seq<u8>, i: int) -> int
     decreases line.len() - i,
 {
@@ -302,6 +377,11 @@ mod runtime {
     struct Entry {
         mode: String,
         oid: String,
+    }
+    impl Entry {
+        fn fields(&self) -> (&str, &str) {
+            (&self.mode, &self.oid)
+        }
     }
     type Tree = BTreeMap<String, Entry>;
     #[derive(Default, Deserialize, Serialize)]
@@ -1621,20 +1701,22 @@ mod runtime {
                 } else {
                     tree(&repo, "HEAD")?
                 };
+                let report_ignored = a.contains(&"--ignored");
+                let terminator = super::status_terminator(a.contains(&"-z"));
                 let mut files = Vec::new();
-                walk(&root, &root, &mut files, !a.contains(&"--ignored"))
-                    .map_err(|e| e.to_string())?;
+                walk(&root, &root, &mut files, !report_ignored).map_err(|e| e.to_string())?;
+                let mut write_record = |(first, second), path: &str| {
+                    out.extend_from_slice(&[first, second]);
+                    out.push(b' ');
+                    out.extend_from_slice(path.as_bytes());
+                    out.push(terminator);
+                };
+                let core_filemode = repo.config.get("core.filemode").map(String::as_str);
                 let paths: std::collections::BTreeSet<_> =
                     snapshot.keys().chain(repo.index.keys()).cloned().collect();
                 for path in paths {
-                    let staged = match (snapshot.get(&path), repo.index.get(&path)) {
-                        (None, Some(_)) => 'A',
-                        (Some(_), None) => 'D',
-                        (Some(x), Some(y)) if x.oid != y.oid || x.mode != y.mode => 'M',
-                        _ => ' ',
-                    };
                     let actual = match entry(&root, &path, repo.width) {
-                        Ok(actual) => Some(actual),
+                        Ok((actual, _)) => Some(actual),
                         Err(error)
                             if matches!(
                                 error.kind(),
@@ -1649,32 +1731,23 @@ mod runtime {
                             return Err(traversal_error(&root.join(&path), error).to_string());
                         }
                     };
-                    let working = match (repo.index.get(&path), actual) {
-                        (Some(_), None) => 'D',
-                        (Some(x), Some((y, _)))
-                            if x.oid != y.oid
-                                || (x.mode != y.mode
-                                    && repo.config.get("core.filemode").map(String::as_str)
-                                        != Some("false")) =>
-                        {
-                            'M'
-                        }
-                        _ => ' ',
-                    };
-                    if staged != ' ' || working != ' ' {
-                        out.extend_from_slice(format!("{staged}{working} {path}").as_bytes());
-                        out.push(if a.contains(&"-z") { 0 } else { b'\n' });
+                    if let Some(status) = super::status_tracked(
+                        snapshot.get(&path).map(Entry::fields),
+                        repo.index.get(&path).map(Entry::fields),
+                        actual.as_ref().map(Entry::fields),
+                        core_filemode,
+                    ) {
+                        write_record(status, &path);
                     }
                 }
                 for path in files {
-                    if !snapshot.contains_key(&path) && !repo.index.contains_key(&path) {
-                        let ignored = a.contains(&"--ignored") && ignored(&root, &path);
-                        if !ignored || a.contains(&"--ignored") {
-                            out.extend_from_slice(
-                                format!("{} {path}", if ignored { "!!" } else { "??" }).as_bytes(),
-                            );
-                            out.push(if a.contains(&"-z") { 0 } else { b'\n' });
-                        }
+                    let tracked = snapshot.contains_key(&path) || repo.index.contains_key(&path);
+                    // The default walk already pruned ignored paths before opening them.
+                    let matched_ignore = !tracked && report_ignored && ignored(&root, &path);
+                    if let Some(status) =
+                        super::status_untracked(tracked, matched_ignore, report_ignored)
+                    {
+                        write_record(status, &path);
                     }
                 }
             }
@@ -2653,9 +2726,6 @@ mod runtime {
         use super::DiffSource;
         let symlinks = repo.config.get("core.symlinks").map(String::as_str) != Some("false");
         let filemode = repo.config.get("core.filemode").map(String::as_str) != Some("false");
-        fn fields(e: &Entry) -> (&str, &str) {
-            (e.mode.as_str(), e.oid.as_str())
-        }
         let mut out = String::new();
         for path in paths {
             let observed;
@@ -2677,8 +2747,8 @@ mod runtime {
                 }
             };
             if super::diff_entry_changed(
-                snapshot.get(&path).map(fields),
-                actual.map(fields),
+                snapshot.get(&path).map(Entry::fields),
+                actual.map(Entry::fields),
                 cached,
                 symlinks,
                 filemode,
