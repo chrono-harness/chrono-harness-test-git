@@ -11,6 +11,125 @@ use vstd::{prelude::*, vpanic as panic};
 
 #[cfg(not(verus_keep_ghost))]
 #[test]
+fn shallow_history_cli_preserves_objects_parent_headers_and_fetch_head() {
+    use std::{fs, path::Path, process::Command, time};
+
+    let directory = tempfile::tempdir().unwrap();
+    let remote = directory.path().join("remote");
+    let local = directory.path().join("local");
+    fs::create_dir(&remote).unwrap();
+    let git = |at: &Path, args: &[&str]| {
+        Command::new(env!("CHRONO_TEST_GIT_BIN"))
+            .current_dir(at)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let ok = |at: &Path, args: &[&str]| {
+        let result = git(at, args);
+        assert_eq!(result.status.code(), Some(0), "{args:?}: {result:?}");
+        assert!(result.stderr.is_empty(), "{args:?}: {result:?}");
+        result.stdout
+    };
+    let oid = |at: &Path| {
+        String::from_utf8(ok(at, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim_end()
+            .to_owned()
+    };
+    ok(&remote, &["init", "-q", "-b", "dev"]);
+    for (name, value) in [("base", "old"), ("middle", "shared"), ("tip", "new")] {
+        fs::write(remote.join(name), value).unwrap();
+        ok(&remote, &["add", name]);
+        ok(&remote, &["commit", "-qm", name]);
+    }
+    let tip = oid(&remote);
+    let parent = |name: &str| {
+        String::from_utf8(ok(&remote, &["rev-parse", name]))
+            .unwrap()
+            .trim_end()
+            .to_owned()
+    };
+    let middle = parent("HEAD~1");
+    let base = parent("HEAD~2");
+    assert_eq!(
+        ok(
+            directory.path(),
+            &[
+                "clone",
+                "--no-checkout",
+                "--depth=2",
+                remote.to_str().unwrap(),
+                "local",
+            ]
+        ),
+        b""
+    );
+    let metadata = local.join(".git");
+    let shallow = metadata.join("shallow");
+    let fetched = metadata.join("FETCH_HEAD");
+    assert_eq!(
+        fs::read(&shallow).unwrap(),
+        format!("{middle}\n").as_bytes()
+    );
+    assert_eq!(oid(&local), tip);
+    let base_query = format!("{base}^{{commit}}");
+    let missing = git(&local, &["cat-file", "-e", &base_query]);
+    assert_eq!(missing.status.code(), Some(93), "{missing:?}");
+    assert!(missing.stdout.is_empty(), "{missing:?}");
+    assert!(!missing.stderr.is_empty(), "{missing:?}");
+    let middle_bytes = ok(&local, &["cat-file", "-p", &middle]);
+    assert_eq!(middle_bytes, ok(&remote, &["cat-file", "commit", &middle]));
+    assert!(
+        middle_bytes
+            .split(|byte| *byte == b'\n')
+            .any(|line| line == format!("parent {base}").as_bytes())
+    );
+    assert_eq!(ok(&local, &["cat-file", "-t", &middle]), b"commit\n");
+    assert_eq!(ok(&local, &["rev-list", "--count", "HEAD"]), b"2\n");
+    assert_eq!(
+        ok(&local, &["rev-list", "--parents", "HEAD"]),
+        format!("{tip} {middle}\n{middle}\n").as_bytes()
+    );
+
+    let existing = metadata.join("objects").join(&middle);
+    let original_time = time::UNIX_EPOCH + time::Duration::from_secs(100);
+    fs::File::options()
+        .write(true)
+        .open(&existing)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(original_time))
+        .unwrap();
+    assert_eq!(ok(&local, &["fetch", "origin", &base]), b"");
+    assert_eq!(fs::read(&fetched).unwrap(), format!("{base}\n").as_bytes());
+    assert_eq!(ok(&local, &["cat-file", "-e", &base_query]), b"");
+    assert_eq!(ok(&local, &["rev-list", "--count", "HEAD"]), b"2\n");
+    assert_eq!(
+        fs::read(&shallow).unwrap(),
+        format!("{middle}\n").as_bytes()
+    );
+
+    let invalid = git(&local, &["fetch", "--depth=0", "origin", "missing"]);
+    assert_eq!(invalid.status.code(), Some(93), "{invalid:?}");
+    assert!(invalid.stdout.is_empty(), "{invalid:?}");
+    assert_eq!(invalid.stderr, b"missing fixture commit missing\n");
+    assert_eq!(fs::read(&fetched).unwrap(), format!("{base}\n").as_bytes());
+    assert_eq!(ok(&local, &["fetch", "--unshallow", "origin", "dev"]), b"");
+    assert_eq!(fs::read(&fetched).unwrap(), format!("{tip}\n").as_bytes());
+    assert!(!shallow.exists());
+    assert_eq!(
+        ok(&local, &["rev-list", "--parents", "FETCH_HEAD"]),
+        format!("{tip} {middle}\n{middle} {base}\n{base}\n").as_bytes()
+    );
+    assert_eq!(fs::read(&existing).unwrap(), middle_bytes);
+    assert_eq!(
+        fs::metadata(existing).unwrap().modified().unwrap(),
+        original_time
+    );
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
 fn porcelain_cli_preserves_column_order_and_delimiters() {
     use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 
@@ -63,6 +182,62 @@ fn porcelain_cli_preserves_column_order_and_delimiters() {
 
 verus! {
 fn expect(actual:bool) requires actual, { if !actual {panic!();} }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn shallow_history_independent_boundaries() {
+    let interior = git::depth_step(Some(2), 1, true);
+    expect(interior.0 && !interior.1);
+    let boundary = git::depth_step(Some(2), 2, true);
+    expect(!boundary.0 && boundary.1);
+    let root_at_limit = git::depth_step(Some(2), 2, false);
+    expect(!root_at_limit.0 && !root_at_limit.1);
+    let unlimited = git::depth_step(None, 2, true);
+    expect(unlimited.0 && !unlimited.1);
+
+    let mut physical = Vec::<u64>::new();
+    physical.push(42);
+    expect(git::revision_parents(true, Some(&physical)).is_none());
+    match git::revision_parents(false, Some(&physical)) {
+        Some(visible) => expect(visible.len() == 1 && visible[0] == 42),
+        None => expect(false),
+    }
+    expect(physical.len() == 1 && physical[0] == 42);
+
+    let acquire = git::fetch_shallow_effect(false, true, false);
+    expect(!acquire.0 && acquire.1);
+    let empty = git::fetch_shallow_effect(false, true, true);
+    expect(!empty.0 && !empty.1);
+    let fetch_ancestor = git::fetch_shallow_effect(false, false, true);
+    expect(!fetch_ancestor.0 && !fetch_ancestor.1);
+    let unshallow = git::fetch_shallow_effect(true, false, true);
+    expect(unshallow.0 && !unshallow.1);
+    let depth_with_unshallow = git::fetch_shallow_effect(true, true, false);
+    expect(depth_with_unshallow.0 && depth_with_unshallow.1);
+    expect(git::fetch_object_destination(Some((7u64, false))) == Some(7u64));
+    expect(git::fetch_object_destination(Some((7u64, true))).is_none());
+    expect(git::fetch_object_destination::<u64>(None).is_none());
+
+    proof {
+        reveal_strlit("-e");
+        reveal_strlit("-t");
+        reveal_strlit("-p");
+        reveal_strlit("blob");
+        reveal_strlit("commit");
+        assert("-e"@[1] != "-t"@[1]);
+        assert("-e"@[1] != "-p"@[1]);
+        assert("-t"@[1] != "-p"@[1]);
+        assert("commit"@.len() != "blob"@.len());
+        assert("commit"@.len() != "-e"@.len());
+        assert("commit"@.len() != "-t"@.len());
+        assert("commit"@.len() != "-p"@.len());
+    }
+    expect(matches!(git::cat_file_output("-e", "commit"), Some(git::CatFileOutput::Silent)));
+    expect(matches!(git::cat_file_output("-t", "commit"), Some(git::CatFileOutput::Kind)));
+    expect(matches!(git::cat_file_output("-p", "commit"), Some(git::CatFileOutput::Bytes)));
+    expect(matches!(git::cat_file_output("commit", "commit"), Some(git::CatFileOutput::Bytes)));
+    expect(git::cat_file_output("commit", "blob").is_none());
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn ordinary_model_errors_preserve_the_callers_exit_status() {
     proof {
